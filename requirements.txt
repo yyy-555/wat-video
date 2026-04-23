@@ -1,0 +1,13 @@
+anthropic
+edge-tts
+moviepy
+pillow
+numpy
+requests
+python-dotenv
+click
+rich
+pytrends
+feedparser
+youtubesearchpython
+gradio>=4.0
