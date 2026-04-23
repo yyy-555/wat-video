@@ -1,3 +1,4 @@
+pyaudioop
 anthropic
 edge-tts
 moviepy
