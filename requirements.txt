@@ -9,5 +9,4 @@ click
 rich
 pytrends
 feedparser
-youtubesearchpython
 gradio>=4.0

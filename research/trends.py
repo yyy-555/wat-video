@@ -72,12 +72,18 @@ def _youtube_trending(query: str, api_key: str, language: str, country: str) -> 
 
 
 def _youtube_search_fallback(query: str, language: str) -> list[dict]:
-    """youtube-search-python を使ったキーワード検索（APIキー不要）"""
+    """YouTube RSS検索（APIキー不要）"""
     try:
-        from youtubesearchpython import VideosSearch
-        results = VideosSearch(query, limit=10, language=language).result()
-        return [{"topic": r["title"], "score": 80 - i, "source": "youtube"}
-                for i, r in enumerate(results.get("result", []))]
+        from urllib.parse import quote_plus
+        url = f"https://www.youtube.com/feeds/videos.xml?search={quote_plus(query)}"
+        resp = requests.get(url, timeout=10, headers={"User-Agent": "Mozilla/5.0"})
+        if resp.status_code != 200:
+            return []
+        root = ET.fromstring(resp.content)
+        ns = {"atom": "http://www.w3.org/2005/Atom"}
+        entries = root.findall("atom:entry", ns)
+        return [{"topic": e.findtext("atom:title", "", ns), "score": 80 - i, "source": "youtube"}
+                for i, e in enumerate(entries[:10]) if e.findtext("atom:title", "", ns)]
     except Exception as e:
         print(f"  [YouTube Fallback] {e}")
         return []
