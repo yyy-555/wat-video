@@ -1,7 +1,6 @@
-pyaudioop
 anthropic
 edge-tts
-moviepy
+moviepy==1.0.3
 pillow
 numpy
 requests
