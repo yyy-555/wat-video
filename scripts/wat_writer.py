@@ -1,13 +1,11 @@
 """
-Claude API を使ってWATフレームワークの台本を生成する。
+Google Gemini API を使ってWATフレームワークの台本を生成する。
 各セクションに HuggingFace 向け英語画像プロンプトを含める。
 """
 from __future__ import annotations
 
 import json
 import re
-
-import anthropic
 
 LANG_LABELS = {
     "ja": {"W": "なぜ？", "A": "方法", "T": "変化"},
@@ -74,7 +72,15 @@ _LANG_NAMES = {"ja": "Japanese", "en": "English", "es": "Spanish"}
 
 def generate(topic: str, language: str = "ja") -> dict:
     """WAT台本を生成して辞書で返す。"""
-    client = anthropic.Anthropic()
+    import google.generativeai as genai
+    from config import GEMINI_API_KEY
+
+    genai.configure(api_key=GEMINI_API_KEY)
+    model = genai.GenerativeModel(
+        model_name="gemini-2.0-flash",
+        system_instruction=_SYSTEM,
+    )
+
     labels = LANG_LABELS.get(language, LANG_LABELS["en"])
     lang_name = _LANG_NAMES.get(language, language)
 
@@ -86,16 +92,10 @@ def generate(topic: str, language: str = "ja") -> dict:
         t_label=labels["T"],
     )
 
-    msg = client.messages.create(
-        model="claude-sonnet-4-6",
-        max_tokens=2048,
-        system=_SYSTEM,
-        messages=[{"role": "user", "content": prompt}],
-    )
+    response = model.generate_content(prompt)
+    raw = response.text.strip()
 
-    raw = msg.content[0].text.strip()
-    # JSONブロックを抽出
     m = re.search(r"\{[\s\S]+\}", raw)
     if not m:
-        raise ValueError(f"No JSON found in Claude response:\n{raw}")
+        raise ValueError(f"No JSON found in Gemini response:\n{raw}")
     return json.loads(m.group(0))
