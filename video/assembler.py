@@ -11,7 +11,7 @@ import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 from moviepy.editor import (
     AudioFileClip, ColorClip, CompositeVideoClip,
-    ImageClip, VideoClip, concatenate_videoclips,
+    ImageClip, concatenate_videoclips,
 )
 
 from config import W, H, FPS, COLORS, FONT_BOLD, FONT_NORMAL, VOICES
@@ -24,22 +24,9 @@ _BADGE_COLORS = {
 }
 
 
-# ── Ken Burns ────────────────────────────────────────────────────────────────
-
-def _ken_burns_clip(img: Image.Image, duration: float) -> VideoClip:
-    base = np.array(img.convert("RGB"))
-    bh, bw = base.shape[:2]
-
-    def make_frame(t):
-        zoom = 1.0 + 0.05 * (t / duration)
-        fw = int(W / zoom)
-        fh = int(H / zoom)
-        ox = (bw - fw) // 2
-        oy = (bh - fh) // 2
-        cropped = base[oy:oy + fh, ox:ox + fw]
-        return np.array(Image.fromarray(cropped).resize((W, H), Image.LANCZOS))
-
-    return VideoClip(make_frame, duration=duration)
+def _image_clip(img: Image.Image, duration: float) -> ImageClip:
+    arr = np.array(img.convert("RGB").resize((W, H), Image.LANCZOS))
+    return ImageClip(arr).set_duration(duration)
 
 
 # ── Font helper ───────────────────────────────────────────────────────────────
@@ -146,8 +133,8 @@ def assemble(
             audio = AudioFileClip(mp3_path)
             duration = audio.duration
 
-            # 背景 (Ken Burns)
-            bg = _ken_burns_clip(img, duration)
+            # 背景
+            bg = _image_clip(img, duration)
 
             # 暗幕
             dark = ColorClip((W, H), color=(0, 0, 0)).set_opacity(0.45).set_duration(duration)
