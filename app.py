@@ -116,10 +116,15 @@ def _script_to_markdown(script: dict) -> str:
 
 
 def pick_topic_to_generate(evt: gr.SelectData, table_data, lang):
-    if evt.index and len(table_data) > evt.index[0]:
-        topic = table_data[evt.index[0]][1]
+    try:
+        row = evt.index[0]
+        if hasattr(table_data, "iloc"):
+            topic = str(table_data.iloc[row, 1])
+        else:
+            topic = table_data[row][1]
         return topic, lang
-    return gr.update(), gr.update()
+    except Exception:
+        return gr.update(), gr.update()
 
 
 # ── UI ────────────────────────────────────────────────────────────────────────
