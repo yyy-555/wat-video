@@ -26,7 +26,7 @@ WATフレームワークを使ったショート動画自動生成ツール。
 ## 必要なSecrets
 | Secret名 | 説明 | 必須 |
 |---|---|---|
-| `ANTHROPIC_API_KEY` | Claude API | ✅ |
+| `GROQ_API_KEY` | Groq API (llama-3.3-70b) | ✅ |
 | `HF_API_KEY` | HuggingFace API | ✅ |
 | `YOUTUBE_API_KEY` | YouTube Data API | 任意 |
 | `TWITTER_BEARER_TOKEN` | X/Twitter API | 任意 |

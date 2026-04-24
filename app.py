@@ -13,7 +13,7 @@ from PIL import Image
 sys.path.insert(0, os.path.dirname(__file__))
 
 from config import (
-    GEMINI_API_KEY, HF_API_KEY,
+    GROQ_API_KEY, HF_API_KEY,
     YOUTUBE_API_KEY, TWITTER_BEARER, NEWS_API_KEY,
     OUTPUT_DIR, SUPPORTED_LANGUAGES,
 )
@@ -42,8 +42,8 @@ def run_research(query: str, lang: str, country: str, sources: list[str]) -> lis
 def run_generate(topic: str, lang: str, progress=gr.Progress(track_tqdm=True)):
     if not topic.strip():
         raise gr.Error("トピックを入力してください")
-    if not GEMINI_API_KEY:
-        raise gr.Error("GEMINI_API_KEY が設定されていません")
+    if not GROQ_API_KEY:
+        raise gr.Error("GROQ_API_KEY が設定されていません")
     if not HF_API_KEY:
         raise gr.Error("HF_API_KEY が設定されていません")
 

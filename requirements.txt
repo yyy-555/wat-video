@@ -1,4 +1,4 @@
-google-generativeai
+groq
 edge-tts
 moviepy==1.0.3
 audioop-lts

@@ -1,5 +1,5 @@
 """
-Google Gemini API を使ってWATフレームワークの台本を生成する。
+Groq API (llama-3.3-70b-versatile) を使ってWATフレームワークの台本を生成する。
 各セクションに HuggingFace 向け英語画像プロンプトを含める。
 """
 from __future__ import annotations
@@ -72,14 +72,10 @@ _LANG_NAMES = {"ja": "Japanese", "en": "English", "es": "Spanish"}
 
 def generate(topic: str, language: str = "ja") -> dict:
     """WAT台本を生成して辞書で返す。"""
-    import google.generativeai as genai
-    from config import GEMINI_API_KEY
+    from groq import Groq
+    from config import GROQ_API_KEY
 
-    genai.configure(api_key=GEMINI_API_KEY)
-    model = genai.GenerativeModel(
-        model_name="gemini-2.0-flash",
-        system_instruction=_SYSTEM,
-    )
+    client = Groq(api_key=GROQ_API_KEY)
 
     labels = LANG_LABELS.get(language, LANG_LABELS["en"])
     lang_name = _LANG_NAMES.get(language, language)
@@ -92,10 +88,19 @@ def generate(topic: str, language: str = "ja") -> dict:
         t_label=labels["T"],
     )
 
-    response = model.generate_content(prompt)
-    raw = response.text.strip()
+    response = client.chat.completions.create(
+        model="llama-3.3-70b-versatile",
+        messages=[
+            {"role": "system", "content": _SYSTEM},
+            {"role": "user",   "content": prompt},
+        ],
+        temperature=0.7,
+        max_tokens=2048,
+    )
+
+    raw = response.choices[0].message.content.strip()
 
     m = re.search(r"\{[\s\S]+\}", raw)
     if not m:
-        raise ValueError(f"No JSON found in Gemini response:\n{raw}")
+        raise ValueError(f"No JSON found in Groq response:\n{raw}")
     return json.loads(m.group(0))
