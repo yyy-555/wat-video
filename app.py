@@ -7,16 +7,6 @@ import sys
 import tempfile
 import uuid
 
-# gradio_client bug: boolean JSON schemas (e.g. additionalProperties: false)
-# cause TypeError in _json_schema_to_python_type. Patch before gradio import.
-import gradio_client.utils as _gc_utils
-_orig_j2p = _gc_utils._json_schema_to_python_type
-def _patched_j2p(schema, defs=None):
-    if not isinstance(schema, dict):
-        return "Any"
-    return _orig_j2p(schema, defs)
-_gc_utils._json_schema_to_python_type = _patched_j2p
-
 import gradio as gr
 from PIL import Image
 
@@ -140,7 +130,7 @@ CSS = """
 footer { display: none !important; }
 """
 
-with gr.Blocks(theme=gr.themes.Soft(primary_hue="red"), css=CSS, title="WAT Video Generator") as demo:
+with gr.Blocks(title="WAT Video Generator") as demo:
 
     gr.HTML("""
     <div class="wat-header">
@@ -248,4 +238,4 @@ with gr.Blocks(theme=gr.themes.Soft(primary_hue="red"), css=CSS, title="WAT Vide
     )
 
 if __name__ == "__main__":
-    demo.launch()
+    demo.launch(theme=gr.themes.Soft(primary_hue="red"), css=CSS)
