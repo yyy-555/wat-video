@@ -6,6 +6,7 @@ from __future__ import annotations
 import asyncio
 import os
 import textwrap
+import threading
 
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
@@ -16,7 +17,10 @@ from moviepy.editor import (
 
 from config import W, H, FPS, COLORS, FONT_BOLD, FONT_NORMAL, VOICES
 
-# WAT ラベルの背景色
+# エンコード用に解像度を半分に落とす（速度優先）
+ENC_W, ENC_H = W // 2, H // 2
+ENC_FPS = 15
+
 _BADGE_COLORS = {
     "W": COLORS["W"],
     "A": COLORS["A"],
@@ -29,8 +33,6 @@ def _image_clip(img: Image.Image, duration: float) -> ImageClip:
     return ImageClip(arr).set_duration(duration)
 
 
-# ── Font helper ───────────────────────────────────────────────────────────────
-
 def _font(size: int, bold: bool = True) -> ImageFont.FreeTypeFont:
     path = FONT_BOLD if bold else FONT_NORMAL
     try:
@@ -39,15 +41,12 @@ def _font(size: int, bold: bool = True) -> ImageFont.FreeTypeFont:
         return ImageFont.load_default()
 
 
-# ── Text overlay ──────────────────────────────────────────────────────────────
-
 def _build_overlay(section_type: str, label: str, body: str,
                    idx: int, total: int) -> np.ndarray:
     img  = Image.new("RGBA", (W, H), (0, 0, 0, 0))
     draw = ImageDraw.Draw(img)
     color = _BADGE_COLORS.get(section_type, (180, 180, 180))
 
-    # バッジ
     font_badge = _font(48, bold=True)
     badge_text = f"  {label.upper()}  "
     bbox = draw.textbbox((0, 0), badge_text, font=font_badge)
@@ -60,7 +59,6 @@ def _build_overlay(section_type: str, label: str, body: str,
     )
     draw.text((bx, by), badge_text, font=font_badge, fill=(255, 255, 255, 255))
 
-    # 本文
     words  = len(body.split())
     fsize  = 68 if words <= 20 else 52
     wrap   = 18 if fsize == 68 else 24
@@ -77,12 +75,10 @@ def _build_overlay(section_type: str, label: str, body: str,
         bb  = draw.textbbox((0, 0), line, font=font_b)
         tx  = (W - (bb[2] - bb[0])) // 2
         ty  = start_y + i * line_h
-        # 影
         draw.text((tx + 3, ty + 3), line, font=font_b, fill=(0, 0, 0, 200))
         clr = color if i == 0 else (255, 255, 255, 240)
         draw.text((tx, ty), line, font=font_b, fill=clr)
 
-    # プログレスバー
     bar_y = H - 72
     bar_h = 8
     mg    = 80
@@ -94,14 +90,42 @@ def _build_overlay(section_type: str, label: str, body: str,
     return np.array(img)
 
 
-# ── TTS ───────────────────────────────────────────────────────────────────────
+def _tts_sync(text: str, voice: str, path: str, timeout: int = 30) -> bool:
+    """TTSを生成。失敗/タイムアウト時はFalseを返す。"""
+    result = {"ok": False, "err": None}
 
-def _tts_sync(text: str, voice: str, path: str) -> None:
-    import edge_tts
-    asyncio.run(edge_tts.Communicate(text, voice).save(path))
+    async def _run():
+        import edge_tts
+        await edge_tts.Communicate(text, voice).save(path)
+        result["ok"] = True
+
+    def _thread():
+        try:
+            asyncio.run(_run())
+        except Exception as e:
+            result["err"] = e
+
+    t = threading.Thread(target=_thread, daemon=True)
+    t.start()
+    t.join(timeout=timeout)
+    return result["ok"]
 
 
-# ── Main entry ────────────────────────────────────────────────────────────────
+def _silent_audio(duration: float, path: str) -> None:
+    """無音MP3を生成する（TTS失敗時のフォールバック）。"""
+    import struct, wave
+    wav_path = path.replace(".mp3", ".wav")
+    n_samples = int(44100 * duration)
+    with wave.open(wav_path, "w") as wf:
+        wf.setnchannels(1)
+        wf.setsampwidth(2)
+        wf.setframerate(44100)
+        wf.writeframes(struct.pack("<" + "h" * n_samples, *([0] * n_samples)))
+    os.replace(wav_path, path.replace(".mp3", ".wav"))
+    # .wav のまま AudioFileClip に渡す（mp3不要）
+    result_path = path.replace(".mp3", ".wav")
+    return result_path
+
 
 def assemble(
     script: dict,
@@ -110,12 +134,6 @@ def assemble(
     output_dir: str,
     video_id: str,
 ) -> str:
-    """
-    script  : wat_writer.generate() の戻り値
-    images  : 各セクションの PIL Image (script["sections"] と同順)
-    language: "ja" | "en" | "es"
-    Returns : 出力 MP4 パス
-    """
     os.makedirs(output_dir, exist_ok=True)
     voice    = VOICES.get(language, VOICES["en"])
     sections = script["sections"]
@@ -127,32 +145,44 @@ def assemble(
     clips = []
     try:
         for idx, (sec, img) in enumerate(zip(sections, images)):
-            # TTS
             mp3_path = os.path.join(tmp_dir, f"s{idx}.mp3")
-            _tts_sync(sec["text"], voice, mp3_path)
-            audio = AudioFileClip(mp3_path)
+            tts_ok = _tts_sync(sec["text"], voice, mp3_path, timeout=30)
+
+            if tts_ok and os.path.exists(mp3_path):
+                audio_path = mp3_path
+            else:
+                # TTS失敗 → 無音3秒
+                print(f"    TTS failed for section {idx}, using silent audio")
+                wav_path = os.path.join(tmp_dir, f"s{idx}.wav")
+                import struct, wave
+                n = int(44100 * 3)
+                with wave.open(wav_path, "w") as wf:
+                    wf.setnchannels(1); wf.setsampwidth(2); wf.setframerate(44100)
+                    wf.writeframes(struct.pack("<" + "h" * n, *([0] * n)))
+                audio_path = wav_path
+
+            audio    = AudioFileClip(audio_path)
             duration = audio.duration
 
-            # 背景
-            bg = _image_clip(img, duration)
-
-            # 暗幕
-            dark = ColorClip((W, H), color=(0, 0, 0)).set_opacity(0.45).set_duration(duration)
-
-            # テキストオーバーレイ
+            bg           = _image_clip(img, duration)
+            dark         = ColorClip((W, H), color=(0, 0, 0)).set_opacity(0.45).set_duration(duration)
             overlay_arr  = _build_overlay(sec["type"], sec["label"], sec["text"], idx, total)
             overlay_clip = ImageClip(overlay_arr, ismask=False).set_duration(duration)
 
-            section_clip = (
-                CompositeVideoClip([bg, dark, overlay_clip])
-                .set_audio(audio)
-            )
+            section_clip = CompositeVideoClip([bg, dark, overlay_clip]).set_audio(audio)
             clips.append(section_clip)
 
         video    = concatenate_videoclips(clips, method="compose")
+        # 半解像度・低FPSでエンコード（HF無料CPU向け）
+        video    = video.resize((ENC_W, ENC_H))
         out_path = os.path.join(output_dir, f"{video_id}.mp4")
         video.write_videofile(
-            out_path, fps=FPS, codec="libx264", audio_codec="aac", logger=None,
+            out_path,
+            fps=ENC_FPS,
+            codec="libx264",
+            audio_codec="aac",
+            preset="ultrafast",
+            logger=None,
         )
         video.close()
 
@@ -160,6 +190,9 @@ def assemble(
         import shutil
         shutil.rmtree(tmp_dir, ignore_errors=True)
         for c in clips:
-            c.close()
+            try:
+                c.close()
+            except Exception:
+                pass
 
     return out_path
