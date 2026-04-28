@@ -70,7 +70,8 @@ def step1_gen_script(topic: str, lang: str, duration_sec: int, num_scenes: int,
 
 
 def step2_make_video(script: dict, t1: str, t2: str, t3: str, t4: str, t5: str,
-                     lang: str, progress=gr.Progress(track_tqdm=True)):
+                     lang: str, style: str = "リアル",
+                     progress=gr.Progress(track_tqdm=True)):
     """編集済みテキストで画像生成 → 動画組み立てを行う。"""
     if script is None:
         raise gr.Error("先に「台本を生成」してください")
@@ -99,7 +100,7 @@ def step2_make_video(script: dict, t1: str, t2: str, t3: str, t4: str, t5: str,
     for i, sec in enumerate(sections):
         progress(0.1 + i * (0.6 / len(sections)),
                  desc=f"🎨 画像生成 {i + 1}/{len(sections)} [{sec['type']}]...")
-        img = gen_image(sec["image_prompt"], HF_API_KEY)
+        img = gen_image(sec["image_prompt"], HF_API_KEY, style=style)
         p   = os.path.join(out_dir, f"img_{i}_{sec['type']}.png")
         img.save(p)
         images.append(img)
@@ -115,7 +116,7 @@ def step2_make_video(script: dict, t1: str, t2: str, t3: str, t4: str, t5: str,
 
 
 def run_auto(query: str, lang: str, country: str, sources: list[str],
-             duration_sec: int = 60, num_scenes: int = 5,
+             duration_sec: int = 60, num_scenes: int = 5, style: str = "リアル",
              progress=gr.Progress(track_tqdm=True)):
     if not query.strip():
         raise gr.Error("キーワードを入力してください")
@@ -144,7 +145,7 @@ def run_auto(query: str, lang: str, country: str, sources: list[str],
     for i, sec in enumerate(sections):
         progress(0.3 + i * (0.4 / len(sections)),
                  desc=f"🎨 画像生成 {i + 1}/{len(sections)}...")
-        img = gen_image(sec["image_prompt"], HF_API_KEY)
+        img = gen_image(sec["image_prompt"], HF_API_KEY, style=style)
         p   = os.path.join(out_dir, f"img_{i}_{sec['type']}.png")
         img.save(p)
         images.append(img)
@@ -237,6 +238,10 @@ with gr.Blocks(title="WAT Video Generator") as demo:
                                        label="動画の長さ（秒）", scale=2)
                 g_scenes   = gr.Radio(choices=[3, 4, 5], value=5, label="場面数", scale=1)
 
+            g_style = gr.Radio(
+                choices=["リアル", "カートゥーン", "ポップアート", "アニメ"],
+                value="カートゥーン", label="🎨 画像スタイル",
+            )
             g_script_btn = gr.Button("📝 ① 台本を生成", variant="secondary", size="lg")
 
             # 台本編集エリア（生成後に表示）
@@ -275,6 +280,10 @@ with gr.Blocks(title="WAT Video Generator") as demo:
                 a_duration = gr.Slider(minimum=20, maximum=60, step=10, value=60,
                                        label="動画の長さ（秒）", scale=2)
                 a_scenes   = gr.Radio(choices=[3, 4, 5], value=5, label="場面数", scale=1)
+            a_style = gr.Radio(
+                choices=["リアル", "カートゥーン", "ポップアート", "アニメ"],
+                value="カートゥーン", label="🎨 画像スタイル",
+            )
             a_btn     = gr.Button("🤖 全自動実行", variant="primary", size="lg")
             a_topic   = gr.Textbox(label="選ばれたトピック", interactive=False)
             a_script  = gr.Markdown(label="台本")
@@ -304,14 +313,14 @@ with gr.Blocks(title="WAT Video Generator") as demo:
     # ② 動画作成
     g_make_btn.click(
         fn=step2_make_video,
-        inputs=[g_script_state] + g_scene_texts + [g_lang],
+        inputs=[g_script_state] + g_scene_texts + [g_lang, g_style],
         outputs=[g_script_md, g_gallery, g_video, g_json],
     )
     g_make_btn.click(fn=lambda: gr.update(visible=True), outputs=[g_json])
 
     a_btn.click(
         fn=run_auto,
-        inputs=[a_query, a_lang, a_country, a_sources, a_duration, a_scenes],
+        inputs=[a_query, a_lang, a_country, a_sources, a_duration, a_scenes, a_style],
         outputs=[a_topic, a_script, a_gallery, a_video],
     )
 

@@ -4,19 +4,33 @@ Pollinations.ai で画像を生成する。完全無料・APIキー不要。
 """
 from __future__ import annotations
 
+import io
 import time
 import urllib.parse
 import urllib.request
-import io
 
 from PIL import Image
 
-_STYLE = (
-    ", ultra realistic, cinematic lighting, sharp focus, "
-    "professional photography, vibrant colors, 9:16 vertical portrait"
-)
-
 CANVAS_W, CANVAS_H = 1080, 1920
+
+_STYLES: dict[str, str] = {
+    "リアル": (
+        ", ultra realistic, cinematic lighting, sharp focus, "
+        "professional photography, vibrant colors, 9:16 vertical portrait"
+    ),
+    "カートゥーン": (
+        ", cartoon style, bold outlines, vibrant flat colors, "
+        "comic illustration, fun and energetic, 9:16 vertical portrait"
+    ),
+    "ポップアート": (
+        ", pop art style, bold graphic colors, halftone dots, "
+        "Andy Warhol inspired, striking contrast, 9:16 vertical portrait"
+    ),
+    "アニメ": (
+        ", anime style, cel shading, vibrant colors, "
+        "detailed illustration, Japanese animation, 9:16 vertical portrait"
+    ),
+}
 
 
 def _smart_crop_to_portrait(img: Image.Image) -> Image.Image:
@@ -29,8 +43,10 @@ def _smart_crop_to_portrait(img: Image.Image) -> Image.Image:
     return img.crop((ox, oy, ox + CANVAS_W, oy + CANVAS_H))
 
 
-def generate(prompt: str, api_key: str = "", retries: int = 3) -> Image.Image:
-    full_prompt  = prompt + _STYLE
+def generate(prompt: str, api_key: str = "", style: str = "リアル",
+             retries: int = 3) -> Image.Image:
+    style_suffix = _STYLES.get(style, _STYLES["リアル"])
+    full_prompt  = prompt + style_suffix
     encoded      = urllib.parse.quote(full_prompt)
     url = (
         f"https://image.pollinations.ai/prompt/{encoded}"
