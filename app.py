@@ -54,16 +54,21 @@ def step1_gen_script(topic: str, lang: str, duration_sec: int, num_scenes: int,
 
     sections = script["sections"]
     textbox_updates = []
+    subtitle_updates = []
     for i in range(MAX_SCENES):
         if i < len(sections):
             sec = sections[i]
             textbox_updates.append(gr.update(value=sec["text"],
                                              label=f"場面 {i+1}：{sec['label']}",
                                              visible=True))
+            subtitle_updates.append(gr.update(value="",
+                                              label=f"字幕 {i+1}（空欄＝字幕なし）",
+                                              visible=True))
         else:
             textbox_updates.append(gr.update(value="", visible=False))
+            subtitle_updates.append(gr.update(value="", visible=False))
 
-    return [script] + textbox_updates + [gr.update(visible=True)]
+    return [script] + textbox_updates + subtitle_updates + [gr.update(visible=True)]
 
 
 def step2_gen_images(script: dict, t1: str, t2: str, t3: str, t4: str, t5: str,
@@ -128,6 +133,7 @@ def regen_one_image(scene_label: str, prompt: str, style: str, images_data: dict
 
 
 def step3_make_video(script: dict, lang: str, images_data: dict,
+                     sub1: str, sub2: str, sub3: str, sub4: str, sub5: str,
                      progress=gr.Progress()):
     if script is None or images_data is None:
         raise gr.Error("先に台本と画像を生成してください")
@@ -137,6 +143,7 @@ def step3_make_video(script: dict, lang: str, images_data: dict,
     images    = [Image.open(p).convert("RGB") for p in paths]
     out_dir   = images_data["out_dir"]
     video_id  = os.path.basename(out_dir)
+    subtitles = [sub1, sub2, sub3, sub4, sub5][:len(sections)]
 
     script_json_path = os.path.join(out_dir, "script.json")
     with open(script_json_path, "w", encoding="utf-8") as f:
@@ -144,7 +151,7 @@ def step3_make_video(script: dict, lang: str, images_data: dict,
 
     progress(0.8, desc="🎬 動画を組み立て中...")
     from video.assembler import assemble
-    mp4_path = assemble(script, images, lang, out_dir, video_id)
+    mp4_path = assemble(script, images, lang, out_dir, video_id, subtitles=subtitles)
 
     progress(1.0, desc="✅ 完了!")
     return _script_to_markdown(script), mp4_path, script_json_path
@@ -284,6 +291,14 @@ with gr.Blocks(title="WAT Video Generator") as demo:
                 gr.Textbox(label=f"場面 {i+1}", lines=3, visible=False, interactive=True)
                 for i in range(MAX_SCENES)
             ]
+            gr.Markdown("#### 💬 字幕（各場面に表示するテキスト。空欄にすると字幕なし）",
+                        visible=True)
+            g_subtitle_texts = [
+                gr.Textbox(label=f"字幕 {i+1}（空欄＝字幕なし）", lines=2,
+                           visible=False, interactive=True,
+                           placeholder="例: 朝食は大切です")
+                for i in range(MAX_SCENES)
+            ]
             g_img_btn = gr.Button("🎨 ② 画像を生成", variant="secondary", size="lg",
                                   visible=False)
 
@@ -348,7 +363,7 @@ with gr.Blocks(title="WAT Video Generator") as demo:
     g_script_btn.click(
         fn=step1_gen_script,
         inputs=[g_topic, g_lang, g_duration, g_scenes],
-        outputs=[g_script_state] + g_scene_texts + [g_img_btn],
+        outputs=[g_script_state] + g_scene_texts + g_subtitle_texts + [g_img_btn],
     )
 
     # ② 画像生成 → (images_data, gallery, scene_sel, edit_prompt, video_btn)
@@ -375,7 +390,7 @@ with gr.Blocks(title="WAT Video Generator") as demo:
     # ③ 動画作成
     g_video_btn.click(
         fn=step3_make_video,
-        inputs=[g_script_state, g_lang, g_images_data],
+        inputs=[g_script_state, g_lang, g_images_data] + g_subtitle_texts,
         outputs=[g_script_md, g_video, g_json],
     )
     g_video_btn.click(fn=lambda: gr.update(visible=True), outputs=[g_json])

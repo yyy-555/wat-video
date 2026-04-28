@@ -84,8 +84,36 @@ def _build_overlay(section_type: str, label: str, body: str,
     return img
 
 
-def _make_frame(img: Image.Image, sec: dict, idx: int, total: int) -> Image.Image:
-    """背景画像 + 暗幕 + テストオーバーレイを PIL で合成して1枚のRGB画像にする。"""
+def _build_subtitle(text: str) -> Image.Image:
+    """字幕オーバーレイを生成する。"""
+    img  = Image.new("RGBA", (ENC_W, ENC_H), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(img)
+    font = _font(38, bold=False)
+
+    lines   = textwrap.wrap(text.strip(), width=22) or [text.strip()]
+    line_h  = 48
+    total_h = len(lines) * line_h
+    start_y = ENC_H - total_h - 90
+
+    for i, line in enumerate(lines):
+        bb = draw.textbbox((0, 0), line, font=font)
+        tw = bb[2] - bb[0]
+        tx = (ENC_W - tw) // 2
+        ty = start_y + i * line_h
+        draw.rounded_rectangle(
+            [tx - 10, ty - 4, tx + tw + 10, ty + line_h - 4],
+            radius=6, fill=(0, 0, 0, 180),
+        )
+        for dx, dy in [(-1, -1), (1, -1), (-1, 1), (1, 1)]:
+            draw.text((tx + dx, ty + dy), line, font=font, fill=(0, 0, 0, 255))
+        draw.text((tx, ty), line, font=font, fill=(255, 255, 255, 255))
+
+    return img
+
+
+def _make_frame(img: Image.Image, sec: dict, idx: int, total: int,
+                subtitle: str = "") -> Image.Image:
+    """背景画像 + 暗幕 + オーバーレイ + 字幕を PIL で合成して1枚のRGB画像にする。"""
     bg      = img.convert("RGB").resize((ENC_W, ENC_H), Image.LANCZOS)
     dark    = Image.new("RGBA", (ENC_W, ENC_H), (0, 0, 0, int(0.45 * 255)))
     overlay = _build_overlay(sec["type"], sec["label"], sec["text"], idx, total)
@@ -93,6 +121,10 @@ def _make_frame(img: Image.Image, sec: dict, idx: int, total: int) -> Image.Imag
 
     result = Image.alpha_composite(bg.convert("RGBA"), dark)
     result = Image.alpha_composite(result, overlay)
+
+    if subtitle.strip():
+        result = Image.alpha_composite(result, _build_subtitle(subtitle))
+
     return result.convert("RGB")
 
 
@@ -144,10 +176,12 @@ def assemble(
     language: str,
     output_dir: str,
     video_id: str,
+    subtitles: list[str] = None,
 ) -> str:
     os.makedirs(output_dir, exist_ok=True)
     voice    = VOICES.get(language, VOICES["en"])
     sections = script["sections"]
+    subs     = subtitles or [""] * len(sections)
 
     tmp_dir = os.path.join(output_dir, "_tmp")
     os.makedirs(tmp_dir, exist_ok=True)
@@ -167,7 +201,8 @@ def assemble(
                 audio_path = wav_path
 
             # ── フレーム合成（PIL） ──────────────────────────────────────────
-            frame      = _make_frame(img, sec, idx, len(sections))
+            subtitle   = subs[idx] if idx < len(subs) else ""
+            frame      = _make_frame(img, sec, idx, len(sections), subtitle=subtitle)
             frame_path = os.path.join(tmp_dir, f"s{idx}.png")
             frame.save(frame_path)
 
