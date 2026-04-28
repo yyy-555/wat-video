@@ -57,13 +57,11 @@ def step1_gen_script(topic: str, lang: str, duration_sec: int, num_scenes: int,
     for i in range(MAX_SCENES):
         if i < len(sections):
             sec = sections[i]
-            textbox_updates.append(gr.update(
-                value=sec["text"],
-                label=f"場面 {i + 1}：{sec['label']}",
-                visible=True,
-            ))
+            textbox_updates.append(gr.update(value=sec["text"],
+                                             label=f"場面 {i+1}：{sec['label']}",
+                                             visible=True))
         else:
-            textbox_updates.append(gr.update(value="", label=f"場面 {i + 1}", visible=False))
+            textbox_updates.append(gr.update(value="", visible=False))
 
     return [script] + textbox_updates + [gr.update(visible=True)]
 
@@ -73,66 +71,72 @@ def step2_gen_images(script: dict, t1: str, t2: str, t3: str, t4: str, t5: str,
     if script is None:
         raise gr.Error("先に「台本を生成」してください")
 
-    edited_texts = [t1, t2, t3, t4, t5]
+    edited = [t1, t2, t3, t4, t5]
     sections = script["sections"]
     for i, sec in enumerate(sections):
-        if edited_texts[i].strip():
-            sec["text"] = edited_texts[i].strip()
+        if edited[i].strip():
+            sec["text"] = edited[i].strip()
 
     video_id = str(uuid.uuid4())[:8]
     out_dir  = os.path.join(OUTPUT_DIR, video_id)
     os.makedirs(out_dir, exist_ok=True)
 
     from images.generator import generate as gen_image
+    paths   = []
+    prompts = []
 
-    img_updates   = []
-    prompt_updates = []
-    acc_updates    = []
-    path_values    = []
+    for i, sec in enumerate(sections):
+        progress((i + 1) / len(sections),
+                 desc=f"🎨 画像生成 {i+1}/{len(sections)} [{sec['type']}]...")
+        img = gen_image(sec["image_prompt"], HF_API_KEY, style=style)
+        p   = os.path.join(out_dir, f"img_{i}_{sec['type']}.png")
+        img.save(p)
+        paths.append(p)
+        prompts.append(sec["image_prompt"])
 
-    for i in range(MAX_SCENES):
-        if i < len(sections):
-            sec = sections[i]
-            progress((i + 1) / len(sections),
-                     desc=f"🎨 画像生成 {i + 1}/{len(sections)} [{sec['type']}]...")
-            img = gen_image(sec["image_prompt"], HF_API_KEY, style=style)
-            p   = os.path.join(out_dir, f"img_{i}_{sec['type']}.png")
-            img.save(p)
-            img_updates.append(gr.update(value=p))
-            prompt_updates.append(gr.update(value=sec["image_prompt"]))
-            acc_updates.append(gr.update(visible=True))
-            path_values.append(p)
-        else:
-            img_updates.append(gr.update(value=None))
-            prompt_updates.append(gr.update(value=""))
-            acc_updates.append(gr.update(visible=False))
-            path_values.append(None)
+    images_data = {"paths": paths, "prompts": prompts, "out_dir": out_dir}
+    choices     = [f"場面 {i+1}" for i in range(len(sections))]
 
-    # out_dir, paths×5, images×5, prompts×5, accordions×5, 動画ボタン
-    return ([out_dir] + path_values
-            + img_updates + prompt_updates + acc_updates
-            + [gr.update(visible=True)])
+    return (images_data,
+            gr.update(value=paths, visible=True),
+            gr.update(choices=choices, value=choices[0], visible=True),
+            prompts[0],
+            gr.update(visible=True))
 
 
-def regen_image(prompt: str, style: str, img_path: str):
-    if not img_path:
+def on_scene_select(scene_label: str, images_data: dict):
+    if not images_data or not scene_label:
+        return gr.update(), gr.update()
+    idx     = int(scene_label.replace("場面 ", "")) - 1
+    paths   = images_data["paths"]
+    prompts = images_data["prompts"]
+    if idx >= len(paths):
+        return gr.update(), gr.update()
+    return paths[idx], prompts[idx]
+
+
+def regen_one_image(scene_label: str, prompt: str, style: str, images_data: dict):
+    if not images_data or not scene_label:
         raise gr.Error("先に画像を生成してください")
+    idx  = int(scene_label.replace("場面 ", "")) - 1
+    path = images_data["paths"][idx]
     from images.generator import generate as gen_image
     img = gen_image(prompt, HF_API_KEY, style=style)
-    img.save(img_path)
-    return img_path
+    img.save(path)
+    images_data["prompts"][idx] = prompt
+    return images_data, images_data["paths"], path
 
 
-def step3_make_video(script: dict, lang: str, out_dir: str,
-                     p0, p1, p2, p3, p4,
+def step3_make_video(script: dict, lang: str, images_data: dict,
                      progress=gr.Progress()):
-    if script is None:
+    if script is None or images_data is None:
         raise gr.Error("先に台本と画像を生成してください")
 
-    sections = script["sections"]
-    paths    = [p for p in [p0, p1, p2, p3, p4] if p][:len(sections)]
-    images   = [Image.open(p).convert("RGB") for p in paths]
-    video_id = os.path.basename(out_dir)
+    sections  = script["sections"]
+    paths     = images_data["paths"][:len(sections)]
+    images    = [Image.open(p).convert("RGB") for p in paths]
+    out_dir   = images_data["out_dir"]
+    video_id  = os.path.basename(out_dir)
 
     script_json_path = os.path.join(out_dir, "script.json")
     with open(script_json_path, "w", encoding="utf-8") as f:
@@ -175,7 +179,7 @@ def run_auto(query: str, lang: str, country: str, sources: list[str],
     img_paths: list[str]      = []
     for i, sec in enumerate(sections):
         progress(0.3 + i * (0.4 / len(sections)),
-                 desc=f"🎨 画像生成 {i + 1}/{len(sections)}...")
+                 desc=f"🎨 画像生成 {i+1}/{len(sections)}...")
         img = gen_image(sec["image_prompt"], HF_API_KEY, style=style)
         p   = os.path.join(out_dir, f"img_{i}_{sec['type']}.png")
         img.save(p)
@@ -275,40 +279,29 @@ with gr.Blocks(title="WAT Video Generator") as demo:
 
             g_script_btn = gr.Button("📝 ① 台本を生成", variant="secondary", size="lg")
 
-            # ── 台本編集エリア ─────────────────────────────────────────────
             g_script_state = gr.State(value=None)
             g_scene_texts  = [
-                gr.Textbox(label=f"場面 {i + 1}", lines=3, visible=False, interactive=True)
+                gr.Textbox(label=f"場面 {i+1}", lines=3, visible=False, interactive=True)
                 for i in range(MAX_SCENES)
             ]
             g_img_btn = gr.Button("🎨 ② 画像を生成", variant="secondary", size="lg",
                                   visible=False)
 
-            # ── 画像編集エリア（Accordionで各場面を表示）──────────────────
-            g_outdir_state    = gr.State(value=None)
-            g_img_path_states = [gr.State(value=None) for _ in range(MAX_SCENES)]
-            g_img_accordions  = []
-            g_img_displays    = []
-            g_img_prompts     = []
-            g_regen_btns      = []
-
-            for i in range(MAX_SCENES):
-                with gr.Accordion(f"場面 {i + 1} の画像", visible=False, open=True) as acc:
-                    with gr.Row():
-                        img_d = gr.Image(height=300, interactive=False, scale=1)
-                        with gr.Column(scale=2):
-                            img_p = gr.Textbox(label="プロンプト（編集して再生成できます）",
-                                               lines=4, interactive=True)
-                            reg_b = gr.Button("🔄 この場面を再生成", size="sm")
-                g_img_accordions.append(acc)
-                g_img_displays.append(img_d)
-                g_img_prompts.append(img_p)
-                g_regen_btns.append(reg_b)
+            # 画像確認・再生成エリア
+            g_images_data  = gr.State(value=None)
+            g_gallery      = gr.Gallery(label="生成画像", columns=5, height=220,
+                                        visible=False, object_fit="cover")
+            g_scene_sel    = gr.Dropdown(label="再生成する場面を選択",
+                                         choices=[], visible=False, interactive=True)
+            g_edit_prompt  = gr.Textbox(label="プロンプト（編集して再生成できます）",
+                                        lines=3, interactive=True)
+            g_edit_img     = gr.Image(label="選択中の画像", height=250, interactive=False)
+            g_regen_btn    = gr.Button("🔄 この場面の画像を再生成", size="sm")
 
             g_video_btn = gr.Button("🎬 ③ 動画を作成", variant="primary", size="lg",
                                     visible=False)
 
-            g_script_md = gr.Markdown(label="台本 (WAT)")
+            g_script_md = gr.Markdown()
             g_video     = gr.Video(label="🎬 完成動画", height=400)
             g_json      = gr.File(label="script.json ダウンロード", visible=False)
 
@@ -337,7 +330,7 @@ with gr.Blocks(title="WAT Video Generator") as demo:
             )
             a_btn     = gr.Button("🤖 全自動実行", variant="primary", size="lg")
             a_topic   = gr.Textbox(label="選ばれたトピック", interactive=False)
-            a_script  = gr.Markdown(label="台本")
+            a_script  = gr.Markdown()
             a_gallery = gr.Gallery(label="生成画像", columns=3, height=300, object_fit="cover")
             a_video   = gr.Video(label="🎬 完成動画", height=400)
 
@@ -357,27 +350,31 @@ with gr.Blocks(title="WAT Video Generator") as demo:
         outputs=[g_script_state] + g_scene_texts + [g_img_btn],
     )
 
-    # ② 画像生成
+    # ② 画像生成 → (images_data, gallery, scene_sel, edit_prompt, video_btn)
     g_img_btn.click(
         fn=step2_gen_images,
         inputs=[g_script_state] + g_scene_texts + [g_style],
-        outputs=([g_outdir_state] + g_img_path_states
-                 + g_img_displays + g_img_prompts + g_img_accordions
-                 + [g_video_btn]),
+        outputs=[g_images_data, g_gallery, g_scene_sel, g_edit_prompt, g_video_btn],
     )
 
-    # 🔄 各場面の再生成
-    for i in range(MAX_SCENES):
-        g_regen_btns[i].click(
-            fn=regen_image,
-            inputs=[g_img_prompts[i], g_style, g_img_path_states[i]],
-            outputs=[g_img_displays[i]],
-        )
+    # 場面選択 → 画像・プロンプト更新
+    g_scene_sel.change(
+        fn=on_scene_select,
+        inputs=[g_scene_sel, g_images_data],
+        outputs=[g_edit_img, g_edit_prompt],
+    )
+
+    # 再生成 → (images_data, gallery, edit_img)
+    g_regen_btn.click(
+        fn=regen_one_image,
+        inputs=[g_scene_sel, g_edit_prompt, g_style, g_images_data],
+        outputs=[g_images_data, g_gallery, g_edit_img],
+    )
 
     # ③ 動画作成
     g_video_btn.click(
         fn=step3_make_video,
-        inputs=[g_script_state, g_lang, g_outdir_state] + g_img_path_states,
+        inputs=[g_script_state, g_lang, g_images_data],
         outputs=[g_script_md, g_video, g_json],
     )
     g_video_btn.click(fn=lambda: gr.update(visible=True), outputs=[g_json])
