@@ -291,8 +291,6 @@ with gr.Blocks(title="WAT Video Generator") as demo:
                 gr.Textbox(label=f"場面 {i+1}", lines=3, visible=False, interactive=True)
                 for i in range(MAX_SCENES)
             ]
-            gr.Markdown("#### 💬 字幕（各場面に表示するテキスト。空欄にすると字幕なし）",
-                        visible=True)
             g_subtitle_texts = [
                 gr.Textbox(label=f"字幕 {i+1}（空欄＝字幕なし）", lines=2,
                            visible=False, interactive=True,
