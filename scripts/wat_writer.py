@@ -104,7 +104,7 @@ def generate(topic: str, language: str = "ja", duration_sec: int = 60,
             {"role": "user",   "content": prompt},
         ],
         temperature=0.7,
-        max_tokens=2048,
+        max_tokens=4096,
     )
 
     raw = response.choices[0].message.content.strip()
