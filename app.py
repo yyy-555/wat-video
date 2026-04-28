@@ -41,7 +41,6 @@ def run_research(query: str, lang: str, country: str, sources: list[str]) -> lis
 
 def step1_gen_script(topic: str, lang: str, duration_sec: int, num_scenes: int,
                      progress=gr.Progress()):
-    """台本だけ生成して編集用テキストボックスに展開する。"""
     if not topic.strip():
         raise gr.Error("トピックを入力してください")
     if not GROQ_API_KEY:
@@ -66,21 +65,19 @@ def step1_gen_script(topic: str, lang: str, duration_sec: int, num_scenes: int,
         else:
             textbox_updates.append(gr.update(value="", label=f"場面 {i + 1}", visible=False))
 
+    # script_state, textboxes×5, 画像生成ボタンを表示
     return [script] + textbox_updates + [gr.update(visible=True)]
 
 
-def step2_make_video(script: dict, t1: str, t2: str, t3: str, t4: str, t5: str,
-                     lang: str, style: str = "リアル",
-                     progress=gr.Progress(track_tqdm=True)):
-    """編集済みテキストで画像生成 → 動画組み立てを行う。"""
+def step2_gen_images(script: dict, t1: str, t2: str, t3: str, t4: str, t5: str,
+                     style: str, progress=gr.Progress()):
     if script is None:
         raise gr.Error("先に「台本を生成」してください")
     if not HF_API_KEY:
         raise gr.Error("HF_API_KEY が設定されていません")
 
     edited_texts = [t1, t2, t3, t4, t5]
-    sections     = script["sections"]
-
+    sections = script["sections"]
     for i, sec in enumerate(sections):
         if edited_texts[i].strip():
             sec["text"] = edited_texts[i].strip()
@@ -89,34 +86,71 @@ def step2_make_video(script: dict, t1: str, t2: str, t3: str, t4: str, t5: str,
     out_dir  = os.path.join(OUTPUT_DIR, video_id)
     os.makedirs(out_dir, exist_ok=True)
 
+    from images.generator import generate as gen_image
+
+    img_updates    = []
+    prompt_updates = []
+    regen_updates  = []
+    path_values    = []
+
+    for i in range(MAX_SCENES):
+        if i < len(sections):
+            sec = sections[i]
+            progress((i + 1) / len(sections),
+                     desc=f"🎨 画像生成 {i + 1}/{len(sections)} [{sec['type']}]...")
+            img = gen_image(sec["image_prompt"], HF_API_KEY, style=style)
+            p   = os.path.join(out_dir, f"img_{i}_{sec['type']}.png")
+            img.save(p)
+            img_updates.append(gr.update(value=p, visible=True))
+            prompt_updates.append(gr.update(value=sec["image_prompt"], visible=True))
+            regen_updates.append(gr.update(visible=True))
+            path_values.append(p)
+        else:
+            img_updates.append(gr.update(value=None, visible=False))
+            prompt_updates.append(gr.update(value="", visible=False))
+            regen_updates.append(gr.update(visible=False))
+            path_values.append(None)
+
+    # out_dir, path_states×5, img×5, prompt×5, regen_btn×5, 動画作成ボタン
+    return ([out_dir] + path_values
+            + img_updates + prompt_updates + regen_updates
+            + [gr.update(visible=True)])
+
+
+def regen_image(prompt: str, style: str, img_path: str):
+    if not img_path:
+        raise gr.Error("先に画像を生成してください")
+    from images.generator import generate as gen_image
+    img = gen_image(prompt, HF_API_KEY, style=style)
+    img.save(img_path)
+    return img_path
+
+
+def step3_make_video(script: dict, lang: str, out_dir: str,
+                     p0, p1, p2, p3, p4,
+                     progress=gr.Progress()):
+    if script is None:
+        raise gr.Error("先に台本と画像を生成してください")
+
+    sections  = script["sections"]
+    paths     = [p for p in [p0, p1, p2, p3, p4] if p][:len(sections)]
+    images    = [Image.open(p).convert("RGB") for p in paths]
+    video_id  = os.path.basename(out_dir)
+
     script_json_path = os.path.join(out_dir, "script.json")
     with open(script_json_path, "w", encoding="utf-8") as f:
         json.dump(script, f, ensure_ascii=False, indent=2)
 
-    from images.generator import generate as gen_image
-    images: list[Image.Image] = []
-    img_paths: list[str]      = []
-
-    for i, sec in enumerate(sections):
-        progress(0.1 + i * (0.6 / len(sections)),
-                 desc=f"🎨 画像生成 {i + 1}/{len(sections)} [{sec['type']}]...")
-        img = gen_image(sec["image_prompt"], HF_API_KEY, style=style)
-        p   = os.path.join(out_dir, f"img_{i}_{sec['type']}.png")
-        img.save(p)
-        images.append(img)
-        img_paths.append(p)
-
-    progress(0.75, desc="🎬 動画を組み立て中...")
+    progress(0.8, desc="🎬 動画を組み立て中...")
     from video.assembler import assemble
-    mp4_path  = assemble(script, images, lang, out_dir, video_id)
-    script_md = _script_to_markdown(script)
+    mp4_path = assemble(script, images, lang, out_dir, video_id)
 
     progress(1.0, desc="✅ 完了!")
-    return script_md, img_paths, mp4_path, script_json_path
+    return _script_to_markdown(script), mp4_path, script_json_path
 
 
 def run_auto(query: str, lang: str, country: str, sources: list[str],
-             duration_sec: int = 60, num_scenes: int = 5, style: str = "リアル",
+             duration_sec: int = 60, num_scenes: int = 5, style: str = "カートゥーン",
              progress=gr.Progress(track_tqdm=True)):
     if not query.strip():
         raise gr.Error("キーワードを入力してください")
@@ -237,29 +271,50 @@ with gr.Blocks(title="WAT Video Generator") as demo:
                 g_duration = gr.Slider(minimum=20, maximum=60, step=10, value=60,
                                        label="動画の長さ（秒）", scale=2)
                 g_scenes   = gr.Radio(choices=[3, 4, 5], value=5, label="場面数", scale=1)
-
             g_style = gr.Radio(
                 choices=["リアル", "カートゥーン", "ポップアート", "アニメ"],
                 value="カートゥーン", label="🎨 画像スタイル",
             )
+
             g_script_btn = gr.Button("📝 ① 台本を生成", variant="secondary", size="lg")
 
-            # 台本編集エリア（生成後に表示）
+            # ── 台本編集エリア ─────────────────────────────────────────────
             g_script_state = gr.State(value=None)
             g_scene_texts  = [
-                gr.Textbox(label=f"場面 {i + 1}", lines=4, visible=False, interactive=True)
+                gr.Textbox(label=f"場面 {i + 1}", lines=3, visible=False, interactive=True)
                 for i in range(MAX_SCENES)
             ]
+            g_img_btn = gr.Button("🎨 ② 画像を生成", variant="secondary", size="lg",
+                                  visible=False)
 
-            g_make_btn = gr.Button("🎬 ② 動画を作成", variant="primary", size="lg",
-                                   visible=False)
+            # ── 画像編集エリア ─────────────────────────────────────────────
+            g_outdir_state     = gr.State(value=None)
+            g_img_path_states  = [gr.State(value=None) for _ in range(MAX_SCENES)]
 
-            with gr.Row():
-                g_script_md = gr.Markdown(label="台本 (WAT)")
-                g_gallery   = gr.Gallery(label="生成画像", columns=3, height=300,
-                                         object_fit="cover")
-            g_video = gr.Video(label="🎬 完成動画", height=400)
-            g_json  = gr.File(label="script.json ダウンロード", visible=False)
+            g_img_rows = []
+            g_img_displays  = []
+            g_img_prompts   = []
+            g_regen_btns    = []
+            for i in range(MAX_SCENES):
+                with gr.Row(visible=False) as row:
+                    img_disp   = gr.Image(label=f"場面 {i + 1}", visible=False,
+                                          height=300, interactive=False)
+                    with gr.Column():
+                        img_prompt = gr.Textbox(label="画像プロンプト（編集可）",
+                                                lines=3, visible=False, interactive=True)
+                        regen_btn  = gr.Button("🔄 再生成", visible=False, size="sm")
+                g_img_rows.append(row)
+                g_img_displays.append(img_disp)
+                g_img_prompts.append(img_prompt)
+                g_regen_btns.append(regen_btn)
+
+            g_video_btn = gr.Button("🎬 ③ 動画を作成", variant="primary", size="lg",
+                                    visible=False)
+
+            # ── 完成エリア ─────────────────────────────────────────────────
+            g_script_md = gr.Markdown(label="台本 (WAT)")
+            g_video     = gr.Video(label="🎬 完成動画", height=400)
+            g_json      = gr.File(label="script.json ダウンロード", visible=False)
 
         # ── Tab 3: Auto ────────────────────────────────────────────────────
         with gr.Tab("🤖 全自動", id="auto"):
@@ -307,17 +362,36 @@ with gr.Blocks(title="WAT Video Generator") as demo:
     g_script_btn.click(
         fn=step1_gen_script,
         inputs=[g_topic, g_lang, g_duration, g_scenes],
-        outputs=[g_script_state] + g_scene_texts + [g_make_btn],
+        outputs=[g_script_state] + g_scene_texts + [g_img_btn],
     )
 
-    # ② 動画作成
-    g_make_btn.click(
-        fn=step2_make_video,
-        inputs=[g_script_state] + g_scene_texts + [g_lang, g_style],
-        outputs=[g_script_md, g_gallery, g_video, g_json],
+    # ② 画像生成
+    g_img_btn.click(
+        fn=step2_gen_images,
+        inputs=[g_script_state] + g_scene_texts + [g_style],
+        outputs=([g_outdir_state] + g_img_path_states
+                 + g_img_displays + g_img_prompts + g_regen_btns
+                 + [g_video_btn]),
     )
-    g_make_btn.click(fn=lambda: gr.update(visible=True), outputs=[g_json])
 
+    # 🔄 各場面の再生成
+    for i in range(MAX_SCENES):
+        g_regen_btns[i].click(
+            fn=regen_image,
+            inputs=[g_img_prompts[i], g_style, g_img_path_states[i]],
+            outputs=[g_img_displays[i]],
+        )
+
+    # ③ 動画作成
+    g_video_btn.click(
+        fn=step3_make_video,
+        inputs=([g_script_state, g_lang, g_outdir_state]
+                + g_img_path_states),
+        outputs=[g_script_md, g_video, g_json],
+    )
+    g_video_btn.click(fn=lambda: gr.update(visible=True), outputs=[g_json])
+
+    # 全自動
     a_btn.click(
         fn=run_auto,
         inputs=[a_query, a_lang, a_country, a_sources, a_duration, a_scenes, a_style],
