@@ -293,8 +293,9 @@ with gr.Blocks(title="WAT Video Generator") as demo:
                                         visible=False, object_fit="cover")
             g_scene_sel    = gr.Dropdown(label="再生成する場面を選択",
                                          choices=[], visible=False, interactive=True)
-            g_edit_prompt  = gr.Textbox(label="プロンプト（編集して再生成できます）",
-                                        lines=3, interactive=True)
+            g_edit_prompt  = gr.Textbox(
+                label="プロンプト（英語で編集すると反映されやすい）",
+                lines=3, interactive=True)
             g_edit_img     = gr.Image(label="選択中の画像", height=250, interactive=False)
             g_regen_btn    = gr.Button("🔄 この場面の画像を再生成", size="sm")
 

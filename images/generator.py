@@ -5,6 +5,7 @@ Pollinations.ai で画像を生成する。完全無料・APIキー不要。
 from __future__ import annotations
 
 import io
+import random
 import time
 import urllib.parse
 import urllib.request
@@ -48,9 +49,10 @@ def generate(prompt: str, api_key: str = "", style: str = "リアル",
     style_suffix = _STYLES.get(style, _STYLES["リアル"])
     full_prompt  = prompt + style_suffix
     encoded      = urllib.parse.quote(full_prompt)
-    url = (
+    seed = random.randint(1, 99999)
+    url  = (
         f"https://image.pollinations.ai/prompt/{encoded}"
-        f"?width=768&height=1360&nologo=true&model=flux"
+        f"?width=768&height=1360&nologo=true&model=flux&seed={seed}"
     )
 
     for attempt in range(retries):
