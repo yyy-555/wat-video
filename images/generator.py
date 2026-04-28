@@ -52,7 +52,7 @@ def generate(prompt: str, api_key: str = "", style: str = "リアル",
     seed = random.randint(1, 99999)
     url  = (
         f"https://image.pollinations.ai/prompt/{encoded}"
-        f"?width=768&height=1360&nologo=true&model=flux-schnell&seed={seed}"
+        f"?width=768&height=1360&nologo=true&model=turbo&seed={seed}"
     )
 
     for attempt in range(retries):
