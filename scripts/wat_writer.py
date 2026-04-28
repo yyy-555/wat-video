@@ -29,19 +29,12 @@ Rules:
 """
 
 
-def _build_prompt(topic: str, language: str, duration_sec: int) -> str:
+def _build_prompt(topic: str, language: str, duration_sec: int, num_scenes: int) -> str:
     labels    = LANG_LABELS.get(language, LANG_LABELS["en"])
     lang_name = _LANG_NAMES.get(language, language)
 
-    # セクション数を秒数から決定
-    if duration_sec <= 30:
-        num_a = 1
-    elif duration_sec <= 60:
-        num_a = 3
-    else:
-        num_a = 5
-
-    num_sections  = 1 + num_a + 1
+    num_a         = num_scenes - 2  # W と T を除いた A セクション数
+    num_sections  = num_scenes
     sec_duration  = duration_sec / num_sections
 
     # 1セクションあたりの目安文字数/語数
@@ -95,13 +88,14 @@ def _build_prompt(topic: str, language: str, duration_sec: int) -> str:
     )
 
 
-def generate(topic: str, language: str = "ja", duration_sec: int = 60) -> dict:
+def generate(topic: str, language: str = "ja", duration_sec: int = 60,
+             num_scenes: int = 5) -> dict:
     """WAT台本を生成して辞書で返す。"""
     from groq import Groq
     from config import GROQ_API_KEY
 
     client = Groq(api_key=GROQ_API_KEY)
-    prompt = _build_prompt(topic, language, duration_sec)
+    prompt = _build_prompt(topic, language, duration_sec, num_scenes)
 
     response = client.chat.completions.create(
         model="llama-3.3-70b-versatile",
