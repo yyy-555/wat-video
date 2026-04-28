@@ -1,10 +1,13 @@
 """
-HuggingFace InferenceClient (FLUX.1-schnell) で画像を生成する。
+Pollinations.ai で画像を生成する。完全無料・APIキー不要。
 ポートレート (1080×1920) にリサイズして返す。
 """
 from __future__ import annotations
 
 import time
+import urllib.parse
+import urllib.request
+import io
 
 from PIL import Image
 
@@ -26,31 +29,24 @@ def _smart_crop_to_portrait(img: Image.Image) -> Image.Image:
     return img.crop((ox, oy, ox + CANVAS_W, oy + CANVAS_H))
 
 
-def generate(prompt: str, api_key: str, retries: int = 4) -> Image.Image:
-    from huggingface_hub import InferenceClient
-
-    client = InferenceClient(token=api_key)
-    full_prompt = prompt + _STYLE
+def generate(prompt: str, api_key: str = "", retries: int = 3) -> Image.Image:
+    full_prompt  = prompt + _STYLE
+    encoded      = urllib.parse.quote(full_prompt)
+    url = (
+        f"https://image.pollinations.ai/prompt/{encoded}"
+        f"?width=768&height=1360&nologo=true&model=flux"
+    )
 
     for attempt in range(retries):
         try:
-            img = client.text_to_image(
-                full_prompt,
-                model="black-forest-labs/FLUX.1-schnell",
-                width=768,
-                height=1360,
-            )
+            req = urllib.request.Request(url, headers={"User-Agent": "wat-video/1.0"})
+            with urllib.request.urlopen(req, timeout=120) as resp:
+                img = Image.open(io.BytesIO(resp.read())).convert("RGB")
             return _smart_crop_to_portrait(img)
-
         except Exception as e:
-            err = str(e).lower()
-            if "loading" in err or "503" in err:
-                wait = 30
-                print(f"    Model loading, wait {wait}s... (attempt {attempt+1})")
-                time.sleep(wait)
-                continue
             if attempt == retries - 1:
                 raise RuntimeError(f"Image generation failed: {e}") from e
+            print(f"    Image generation failed (attempt {attempt + 1}), retrying...")
             time.sleep(10)
 
     raise RuntimeError("Image generation failed after all retries")
