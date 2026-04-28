@@ -1,23 +1,22 @@
 """
 WAT台本 + 生成画像 + TTS → ショート動画 (MP4) を組み立てる。
+moviepy を使わず ffmpeg を直接呼び出すことで HF 無料 CPU でも完走できる。
 """
 from __future__ import annotations
 
 import asyncio
 import os
+import struct
+import subprocess
 import textwrap
 import threading
+import wave
 
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
-from moviepy.editor import (
-    AudioFileClip, ColorClip, CompositeVideoClip,
-    ImageClip, concatenate_videoclips,
-)
 
-from config import W, H, FPS, COLORS, FONT_BOLD, FONT_NORMAL, VOICES
+from config import W, H, COLORS, FONT_BOLD, FONT_NORMAL, VOICES
 
-# エンコード用に解像度を半分に落とす（速度優先）
 ENC_W, ENC_H = W // 2, H // 2
 ENC_FPS = 15
 
@@ -26,11 +25,6 @@ _BADGE_COLORS = {
     "A": COLORS["A"],
     "T": COLORS["T"],
 }
-
-
-def _image_clip(img: Image.Image, duration: float) -> ImageClip:
-    arr = np.array(img.convert("RGB").resize((ENC_W, ENC_H), Image.LANCZOS))
-    return ImageClip(arr).set_duration(duration)
 
 
 def _font(size: int, bold: bool = True) -> ImageFont.FreeTypeFont:
@@ -42,7 +36,7 @@ def _font(size: int, bold: bool = True) -> ImageFont.FreeTypeFont:
 
 
 def _build_overlay(section_type: str, label: str, body: str,
-                   idx: int, total: int) -> np.ndarray:
+                   idx: int, total: int) -> Image.Image:
     img  = Image.new("RGBA", (W, H), (0, 0, 0, 0))
     draw = ImageDraw.Draw(img)
     color = _BADGE_COLORS.get(section_type, (180, 180, 180))
@@ -79,20 +73,32 @@ def _build_overlay(section_type: str, label: str, body: str,
         clr = color if i == 0 else (255, 255, 255, 240)
         draw.text((tx, ty), line, font=font_b, fill=clr)
 
-    bar_y = H - 72
-    bar_h = 8
-    mg    = 80
-    full  = W - 2 * mg
+    bar_y  = H - 72
+    bar_h  = 8
+    mg     = 80
+    full   = W - 2 * mg
     filled = int(full * (idx + 1) / total)
-    draw.rounded_rectangle([mg, bar_y, mg + full, bar_y + bar_h], radius=4, fill=(60, 60, 80, 180))
+    draw.rounded_rectangle([mg, bar_y, mg + full, bar_y + bar_h],   radius=4, fill=(60, 60, 80, 180))
     draw.rounded_rectangle([mg, bar_y, mg + filled, bar_y + bar_h], radius=4, fill=(*color, 220))
 
-    return np.array(img)
+    return img
 
 
-def _tts_sync(text: str, voice: str, path: str, timeout: int = 30) -> bool:
-    """TTSを生成。失敗/タイムアウト時はFalseを返す。"""
-    result = {"ok": False, "err": None}
+def _make_frame(img: Image.Image, sec: dict, idx: int, total: int) -> Image.Image:
+    """背景画像 + 暗幕 + テストオーバーレイを PIL で合成して1枚のRGB画像にする。"""
+    bg      = img.convert("RGB").resize((ENC_W, ENC_H), Image.LANCZOS)
+    dark    = Image.new("RGBA", (ENC_W, ENC_H), (0, 0, 0, int(0.45 * 255)))
+    overlay = _build_overlay(sec["type"], sec["label"], sec["text"], idx, total)
+    overlay = overlay.resize((ENC_W, ENC_H), Image.LANCZOS)
+
+    result = Image.alpha_composite(bg.convert("RGBA"), dark)
+    result = Image.alpha_composite(result, overlay)
+    return result.convert("RGB")
+
+
+def _tts_sync(text: str, voice: str, path: str, timeout: int = 10) -> bool:
+    """edge-tts でTTS生成。timeout秒以内に失敗したらFalseを返す。"""
+    result = {"ok": False}
 
     async def _run():
         import edge_tts
@@ -102,8 +108,8 @@ def _tts_sync(text: str, voice: str, path: str, timeout: int = 30) -> bool:
     def _thread():
         try:
             asyncio.run(_run())
-        except Exception as e:
-            result["err"] = e
+        except Exception:
+            pass
 
     t = threading.Thread(target=_thread, daemon=True)
     t.start()
@@ -111,20 +117,25 @@ def _tts_sync(text: str, voice: str, path: str, timeout: int = 30) -> bool:
     return result["ok"]
 
 
-def _silent_audio(duration: float, path: str) -> None:
-    """無音MP3を生成する（TTS失敗時のフォールバック）。"""
-    import struct, wave
-    wav_path = path.replace(".mp3", ".wav")
-    n_samples = int(44100 * duration)
-    with wave.open(wav_path, "w") as wf:
+def _silent_wav(duration: float, path: str) -> None:
+    """指定秒数の無音WAVを生成する。"""
+    n = int(44100 * duration)
+    with wave.open(path, "w") as wf:
         wf.setnchannels(1)
         wf.setsampwidth(2)
         wf.setframerate(44100)
-        wf.writeframes(struct.pack("<" + "h" * n_samples, *([0] * n_samples)))
-    os.replace(wav_path, path.replace(".mp3", ".wav"))
-    # .wav のまま AudioFileClip に渡す（mp3不要）
-    result_path = path.replace(".mp3", ".wav")
-    return result_path
+        wf.writeframes(struct.pack("<" + "h" * n, *([0] * n)))
+
+
+def _ffmpeg(*args: str, timeout: int = 120) -> None:
+    """ffmpeg を呼び出す。失敗したら RuntimeError を上げる。"""
+    r = subprocess.run(
+        ["ffmpeg", "-y", *args],
+        capture_output=True,
+        timeout=timeout,
+    )
+    if r.returncode != 0:
+        raise RuntimeError(r.stderr.decode(errors="replace")[-600:])
 
 
 def assemble(
@@ -137,61 +148,58 @@ def assemble(
     os.makedirs(output_dir, exist_ok=True)
     voice    = VOICES.get(language, VOICES["en"])
     sections = script["sections"]
-    total    = len(sections)
 
     tmp_dir = os.path.join(output_dir, "_tmp")
     os.makedirs(tmp_dir, exist_ok=True)
 
-    clips = []
+    clip_paths: list[str] = []
     try:
         for idx, (sec, img) in enumerate(zip(sections, images)):
+            # ── TTS ──────────────────────────────────────────────────────────
             mp3_path = os.path.join(tmp_dir, f"s{idx}.mp3")
-            tts_ok = _tts_sync(sec["text"], voice, mp3_path, timeout=30)
-
+            tts_ok   = _tts_sync(sec["text"], voice, mp3_path, timeout=10)
             if tts_ok and os.path.exists(mp3_path):
                 audio_path = mp3_path
             else:
-                # TTS失敗 → 無音3秒
                 print(f"    TTS failed for section {idx}, using silent audio")
                 wav_path = os.path.join(tmp_dir, f"s{idx}.wav")
-                import struct, wave
-                n = int(44100 * 3)
-                with wave.open(wav_path, "w") as wf:
-                    wf.setnchannels(1); wf.setsampwidth(2); wf.setframerate(44100)
-                    wf.writeframes(struct.pack("<" + "h" * n, *([0] * n)))
+                _silent_wav(3.0, wav_path)
                 audio_path = wav_path
 
-            audio    = AudioFileClip(audio_path)
-            duration = audio.duration
+            # ── フレーム合成（PIL） ──────────────────────────────────────────
+            frame      = _make_frame(img, sec, idx, len(sections))
+            frame_path = os.path.join(tmp_dir, f"s{idx}.png")
+            frame.save(frame_path)
 
-            bg           = _image_clip(img, duration)
-            dark         = ColorClip((ENC_W, ENC_H), color=(0, 0, 0)).set_opacity(0.45).set_duration(duration)
-            overlay_arr  = _build_overlay(sec["type"], sec["label"], sec["text"], idx, total)
-            overlay_img  = Image.fromarray(overlay_arr).resize((ENC_W, ENC_H), Image.LANCZOS)
-            overlay_clip = ImageClip(np.array(overlay_img), ismask=False).set_duration(duration)
+            # ── ffmpeg で静止画 + 音声 → 動画クリップ ──────────────────────
+            clip_path = os.path.join(tmp_dir, f"s{idx}.mp4")
+            _ffmpeg(
+                "-loop", "1", "-framerate", str(ENC_FPS), "-i", frame_path,
+                "-i", audio_path,
+                "-c:v", "libx264", "-preset", "ultrafast", "-crf", "28",
+                "-c:a", "aac", "-b:a", "96k",
+                "-shortest",
+                clip_path,
+                timeout=60,
+            )
+            clip_paths.append(clip_path)
 
-            section_clip = CompositeVideoClip([bg, dark, overlay_clip]).set_audio(audio)
-            clips.append(section_clip)
+        # ── 全クリップを結合 ──────────────────────────────────────────────────
+        concat_file = os.path.join(tmp_dir, "concat.txt")
+        with open(concat_file, "w") as f:
+            for p in clip_paths:
+                f.write(f"file '{p}'\n")
 
-        video    = concatenate_videoclips(clips, method="compose")
         out_path = os.path.join(output_dir, f"{video_id}.mp4")
-        video.write_videofile(
+        _ffmpeg(
+            "-f", "concat", "-safe", "0", "-i", concat_file,
+            "-c", "copy",
             out_path,
-            fps=ENC_FPS,
-            codec="libx264",
-            audio_codec="aac",
-            preset="ultrafast",
-            logger=None,
+            timeout=120,
         )
-        video.close()
 
     finally:
         import shutil
         shutil.rmtree(tmp_dir, ignore_errors=True)
-        for c in clips:
-            try:
-                c.close()
-            except Exception:
-                pass
 
     return out_path

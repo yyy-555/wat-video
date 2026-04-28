@@ -1,7 +1,5 @@
 groq
 edge-tts
-moviepy==1.0.3
-audioop-lts
 pillow
 numpy
 requests
