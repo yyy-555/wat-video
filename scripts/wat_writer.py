@@ -13,80 +13,95 @@ LANG_LABELS = {
     "es": {"W": "POR QUÉ", "A": "ACCIÓN", "T": "CAMBIO"},
 }
 
+_LANG_NAMES = {"ja": "Japanese", "en": "English", "es": "Spanish"}
+
 _SYSTEM = """\
 You are a professional short-video scriptwriter using the WAT framework:
-  W (Why/Hook)       — grab attention in 1–2 sentences, state the core problem
-  A (Action/Content) — 3 concrete, actionable tips or steps
-  T (Transformation) — show the result / call to action in 1–2 sentences
+  W (Why/Hook)       — grab attention, state the core problem
+  A (Action/Content) — concrete, actionable tips or steps
+  T (Transformation) — show the result / call to action
 
 Rules:
 - Script text must be in the requested language.
+- Match the requested text length per section as closely as possible.
 - image_prompt must ALWAYS be in English, photorealistic, vertical (9:16), cinematic.
 - Return ONLY valid JSON. No markdown, no explanation outside the JSON.
 """
 
-_TEMPLATE = """\
-Topic    : {topic}
-Language : {language}
 
-Return exactly this JSON structure:
-{{
-  "topic": "{topic}",
-  "sections": [
-    {{
-      "type": "W",
-      "label": "{w_label}",
-      "text": "<hook script in {language}>",
-      "image_prompt": "<English image prompt, portrait 9:16, vivid>"
-    }},
-    {{
-      "type": "A",
-      "label": "{a_label} 1",
-      "text": "<action tip 1 in {language}>",
-      "image_prompt": "<English image prompt>"
-    }},
-    {{
-      "type": "A",
-      "label": "{a_label} 2",
-      "text": "<action tip 2 in {language}>",
-      "image_prompt": "<English image prompt>"
-    }},
-    {{
-      "type": "A",
-      "label": "{a_label} 3",
-      "text": "<action tip 3 in {language}>",
-      "image_prompt": "<English image prompt>"
-    }},
-    {{
-      "type": "T",
-      "label": "{t_label}",
-      "text": "<transformation/CTA in {language}>",
-      "image_prompt": "<English image prompt>"
-    }}
-  ]
-}}
-"""
+def _build_prompt(topic: str, language: str, duration_sec: int) -> str:
+    labels    = LANG_LABELS.get(language, LANG_LABELS["en"])
+    lang_name = _LANG_NAMES.get(language, language)
 
-_LANG_NAMES = {"ja": "Japanese", "en": "English", "es": "Spanish"}
+    # セクション数を秒数から決定
+    if duration_sec <= 30:
+        num_a = 1
+    elif duration_sec <= 60:
+        num_a = 3
+    else:
+        num_a = 5
+
+    num_sections  = 1 + num_a + 1
+    sec_duration  = duration_sec / num_sections
+
+    # 1セクションあたりの目安文字数/語数
+    if language == "ja":
+        text_hint = f"約{int(sec_duration * 6)}〜{int(sec_duration * 7)}文字"
+    else:
+        text_hint = f"about {int(sec_duration * 2)}–{int(sec_duration * 2.5)} words"
+
+    # セクションのJSONテンプレートを動的生成
+    parts = []
+    parts.append(
+        f'    {{\n'
+        f'      "type": "W",\n'
+        f'      "label": "{labels["W"]}",\n'
+        f'      "text": "<hook in {lang_name}, {text_hint}>",\n'
+        f'      "image_prompt": "<English image prompt, portrait 9:16, vivid>"\n'
+        f'    }}'
+    )
+    for i in range(1, num_a + 1):
+        parts.append(
+            f'    {{\n'
+            f'      "type": "A",\n'
+            f'      "label": "{labels["A"]} {i}",\n'
+            f'      "text": "<action tip {i} in {lang_name}, {text_hint}>",\n'
+            f'      "image_prompt": "<English image prompt>"\n'
+            f'    }}'
+        )
+    parts.append(
+        f'    {{\n'
+        f'      "type": "T",\n'
+        f'      "label": "{labels["T"]}",\n'
+        f'      "text": "<transformation/CTA in {lang_name}, {text_hint}>",\n'
+        f'      "image_prompt": "<English image prompt>"\n'
+        f'    }}'
+    )
+
+    sections_str = ",\n".join(parts)
+
+    return (
+        f"Topic    : {topic}\n"
+        f"Language : {lang_name}\n"
+        f"Target duration: {duration_sec} seconds "
+        f"({num_sections} sections, {text_hint} per section)\n\n"
+        f"Return exactly this JSON structure:\n"
+        f'{{\n'
+        f'  "topic": "{topic}",\n'
+        f'  "sections": [\n'
+        f"{sections_str}\n"
+        f"  ]\n"
+        f"}}"
+    )
 
 
-def generate(topic: str, language: str = "ja") -> dict:
+def generate(topic: str, language: str = "ja", duration_sec: int = 60) -> dict:
     """WAT台本を生成して辞書で返す。"""
     from groq import Groq
     from config import GROQ_API_KEY
 
     client = Groq(api_key=GROQ_API_KEY)
-
-    labels = LANG_LABELS.get(language, LANG_LABELS["en"])
-    lang_name = _LANG_NAMES.get(language, language)
-
-    prompt = _TEMPLATE.format(
-        topic=topic,
-        language=lang_name,
-        w_label=labels["W"],
-        a_label=labels["A"],
-        t_label=labels["T"],
-    )
+    prompt = _build_prompt(topic, language, duration_sec)
 
     response = client.chat.completions.create(
         model="llama-3.3-70b-versatile",
@@ -99,8 +114,7 @@ def generate(topic: str, language: str = "ja") -> dict:
     )
 
     raw = response.choices[0].message.content.strip()
-
-    m = re.search(r"\{[\s\S]+\}", raw)
+    m   = re.search(r"\{[\s\S]+\}", raw)
     if not m:
         raise ValueError(f"No JSON found in Groq response:\n{raw}")
     return json.loads(m.group(0))

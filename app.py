@@ -39,7 +39,8 @@ def run_research(query: str, lang: str, country: str, sources: list[str]) -> lis
     return [[i + 1, r["topic"], r["score"], r["source"]] for i, r in enumerate(results[:15])]
 
 
-def run_generate(topic: str, lang: str, progress=gr.Progress(track_tqdm=True)):
+def run_generate(topic: str, lang: str, duration_sec: int = 60,
+                 progress=gr.Progress(track_tqdm=True)):
     if not topic.strip():
         raise gr.Error("トピックを入力してください")
     if not GROQ_API_KEY:
@@ -54,7 +55,7 @@ def run_generate(topic: str, lang: str, progress=gr.Progress(track_tqdm=True)):
     # ── 1. Script ──────────────────────────────────────────────────────────
     progress(0.05, desc="📝 台本を生成中...")
     from scripts.wat_writer import generate as gen_script
-    script = gen_script(topic, lang)
+    script = gen_script(topic, lang, duration_sec=duration_sec)
 
     script_json_path = os.path.join(out_dir, "script.json")
     with open(script_json_path, "w", encoding="utf-8") as f:
@@ -86,6 +87,7 @@ def run_generate(topic: str, lang: str, progress=gr.Progress(track_tqdm=True)):
 
 
 def run_auto(query: str, lang: str, country: str, sources: list[str],
+             duration_sec: int = 60,
              progress=gr.Progress(track_tqdm=True)):
     if not query.strip():
         raise gr.Error("キーワードを入力してください")
@@ -99,7 +101,9 @@ def run_auto(query: str, lang: str, country: str, sources: list[str],
     top_topic = rows[0][1]
     progress(0.15, desc=f"🎯 トピック決定: {top_topic}")
 
-    script_md, img_paths, mp4_path, json_path = run_generate(top_topic, lang, progress=progress)
+    script_md, img_paths, mp4_path, json_path = run_generate(
+        top_topic, lang, duration_sec=duration_sec, progress=progress
+    )
     return top_topic, script_md, img_paths, mp4_path
 
 
@@ -181,6 +185,8 @@ with gr.Blocks(title="WAT Video Generator") as demo:
                 g_lang  = gr.Radio(choices=list(LANG_NAMES.keys()), value="ja",
                                    label="言語", type="value")
 
+            g_duration = gr.Slider(minimum=15, maximum=90, step=15, value=60,
+                                   label="動画の長さ（秒）")
             g_btn = gr.Button("🎬 動画を生成", variant="primary", size="lg")
 
             with gr.Row():
@@ -207,6 +213,8 @@ with gr.Blocks(title="WAT Video Generator") as demo:
                 value=["google", "youtube", "news"],
                 label="リサーチソース",
             )
+            a_duration = gr.Slider(minimum=15, maximum=90, step=15, value=60,
+                                   label="動画の長さ（秒）")
             a_btn = gr.Button("🤖 全自動実行", variant="primary", size="lg")
 
             a_topic   = gr.Textbox(label="選ばれたトピック", interactive=False)
@@ -231,14 +239,14 @@ with gr.Blocks(title="WAT Video Generator") as demo:
 
     g_btn.click(
         fn=run_generate,
-        inputs=[g_topic, g_lang],
+        inputs=[g_topic, g_lang, g_duration],
         outputs=[g_script, g_gallery, g_video, g_json],
     )
     g_btn.click(fn=lambda: gr.update(visible=True), outputs=[g_json])
 
     a_btn.click(
         fn=run_auto,
-        inputs=[a_query, a_lang, a_country, a_sources],
+        inputs=[a_query, a_lang, a_country, a_sources, a_duration],
         outputs=[a_topic, a_script, a_gallery, a_video],
     )
 
