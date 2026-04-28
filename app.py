@@ -185,7 +185,7 @@ with gr.Blocks(title="WAT Video Generator") as demo:
                 g_lang  = gr.Radio(choices=list(LANG_NAMES.keys()), value="ja",
                                    label="言語", type="value")
 
-            g_duration = gr.Slider(minimum=15, maximum=90, step=15, value=60,
+            g_duration = gr.Slider(minimum=20, maximum=60, step=10, value=60,
                                    label="動画の長さ（秒）")
             g_btn = gr.Button("🎬 動画を生成", variant="primary", size="lg")
 
@@ -213,7 +213,7 @@ with gr.Blocks(title="WAT Video Generator") as demo:
                 value=["google", "youtube", "news"],
                 label="リサーチソース",
             )
-            a_duration = gr.Slider(minimum=15, maximum=90, step=15, value=60,
+            a_duration = gr.Slider(minimum=20, maximum=60, step=10, value=60,
                                    label="動画の長さ（秒）")
             a_btn = gr.Button("🤖 全自動実行", variant="primary", size="lg")
 
