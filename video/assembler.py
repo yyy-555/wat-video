@@ -29,7 +29,7 @@ _BADGE_COLORS = {
 
 
 def _image_clip(img: Image.Image, duration: float) -> ImageClip:
-    arr = np.array(img.convert("RGB").resize((W, H), Image.LANCZOS))
+    arr = np.array(img.convert("RGB").resize((ENC_W, ENC_H), Image.LANCZOS))
     return ImageClip(arr).set_duration(duration)
 
 
@@ -165,16 +165,15 @@ def assemble(
             duration = audio.duration
 
             bg           = _image_clip(img, duration)
-            dark         = ColorClip((W, H), color=(0, 0, 0)).set_opacity(0.45).set_duration(duration)
+            dark         = ColorClip((ENC_W, ENC_H), color=(0, 0, 0)).set_opacity(0.45).set_duration(duration)
             overlay_arr  = _build_overlay(sec["type"], sec["label"], sec["text"], idx, total)
-            overlay_clip = ImageClip(overlay_arr, ismask=False).set_duration(duration)
+            overlay_img  = Image.fromarray(overlay_arr).resize((ENC_W, ENC_H), Image.LANCZOS)
+            overlay_clip = ImageClip(np.array(overlay_img), ismask=False).set_duration(duration)
 
             section_clip = CompositeVideoClip([bg, dark, overlay_clip]).set_audio(audio)
             clips.append(section_clip)
 
         video    = concatenate_videoclips(clips, method="compose")
-        # 半解像度・低FPSでエンコード（HF無料CPU向け）
-        video    = video.resize((ENC_W, ENC_H))
         out_path = os.path.join(output_dir, f"{video_id}.mp4")
         video.write_videofile(
             out_path,
