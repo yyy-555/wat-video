@@ -33,5 +33,9 @@ if platform.system() == "Windows":
     FONT_BOLD   = "C:/Windows/Fonts/arialbd.ttf"
     FONT_NORMAL = "C:/Windows/Fonts/arial.ttf"
 else:
-    FONT_BOLD   = "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf"
-    FONT_NORMAL = "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf"
+    _NOTO_BOLD   = "/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc"
+    _NOTO_NORMAL = "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc"
+    _LIB_BOLD    = "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf"
+    _LIB_NORMAL  = "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf"
+    FONT_BOLD   = _NOTO_BOLD   if os.path.exists(_NOTO_BOLD)   else _LIB_BOLD
+    FONT_NORMAL = _NOTO_NORMAL if os.path.exists(_NOTO_NORMAL) else _LIB_NORMAL
