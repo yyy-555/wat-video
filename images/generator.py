@@ -14,23 +14,51 @@ from PIL import Image
 
 CANVAS_W, CANVAS_H = 1080, 1920
 
-_STYLES: dict[str, str] = {
-    "リアル": (
-        ", ultra realistic, cinematic lighting, sharp focus, "
-        "professional photography, vibrant colors, 9:16 vertical portrait"
-    ),
-    "カートゥーン": (
-        ", cartoon style, bold outlines, vibrant flat colors, "
-        "comic illustration, fun and energetic, 9:16 vertical portrait"
-    ),
-    "ポップアート": (
-        ", pop art style, bold graphic colors, halftone dots, "
-        "Andy Warhol inspired, striking contrast, 9:16 vertical portrait"
-    ),
-    "アニメ": (
-        ", anime style, cel shading, vibrant colors, "
-        "detailed illustration, Japanese animation, 9:16 vertical portrait"
-    ),
+_STYLES: dict[str, dict] = {
+    "リアル": {
+        "suffix": (
+            ", ultra realistic, cinematic lighting, sharp focus, "
+            "professional photography, highly detailed face, perfect symmetric eyes, "
+            "vibrant colors, 9:16 vertical portrait, 8k"
+        ),
+        "model": "flux-realism",
+        "negative": (
+            "deformed face, blurry face, missing eyes, extra eyes, asymmetric eyes, "
+            "disfigured, bad anatomy, ugly, low quality, blurry"
+        ),
+    },
+    "カートゥーン": {
+        "suffix": (
+            ", cartoon style, bold outlines, vibrant flat colors, "
+            "comic illustration, fun and energetic, expressive face, "
+            "9:16 vertical portrait"
+        ),
+        "model": "flux",
+        "negative": (
+            "deformed, disfigured, blurry, low quality, bad anatomy"
+        ),
+    },
+    "ポップアート": {
+        "suffix": (
+            ", pop art style, bold graphic colors, halftone dots, "
+            "Andy Warhol inspired, striking contrast, 9:16 vertical portrait"
+        ),
+        "model": "flux",
+        "negative": (
+            "deformed, disfigured, blurry, low quality"
+        ),
+    },
+    "アニメ": {
+        "suffix": (
+            ", anime style, cel shading, vibrant colors, "
+            "detailed illustration, Japanese animation, "
+            "beautiful detailed eyes, 9:16 vertical portrait"
+        ),
+        "model": "flux",
+        "negative": (
+            "deformed face, missing eyes, bad anatomy, ugly, blurry, low quality"
+        ),
+    },
 }
 
 
@@ -46,13 +74,16 @@ def _smart_crop_to_portrait(img: Image.Image) -> Image.Image:
 
 def generate(prompt: str, api_key: str = "", style: str = "リアル",
              retries: int = 3) -> Image.Image:
-    style_suffix = _STYLES.get(style, _STYLES["リアル"])
-    full_prompt  = prompt + style_suffix
+    style_cfg    = _STYLES.get(style, _STYLES["リアル"])
+    full_prompt  = prompt + style_cfg["suffix"]
     encoded      = urllib.parse.quote(full_prompt)
+    neg_encoded  = urllib.parse.quote(style_cfg["negative"])
+    model        = style_cfg["model"]
     seed = random.randint(1, 99999)
     url  = (
         f"https://image.pollinations.ai/prompt/{encoded}"
-        f"?width=768&height=1360&nologo=true&model=flux-schnell&seed={seed}"
+        f"?width=768&height=1360&nologo=true&model={model}&seed={seed}"
+        f"&negative_prompt={neg_encoded}"
     )
 
     for attempt in range(retries):
