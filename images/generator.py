@@ -59,6 +59,39 @@ _STYLES: dict[str, dict] = {
             "deformed face, missing eyes, bad anatomy, ugly, blurry, low quality"
         ),
     },
+    "水彩画": {
+        "suffix": (
+            ", watercolor painting style, soft washes of color, "
+            "delicate brushstrokes, artistic, dreamy atmosphere, "
+            "9:16 vertical portrait"
+        ),
+        "model": "flux",
+        "negative": (
+            "deformed, disfigured, photo realistic, sharp edges, low quality"
+        ),
+    },
+    "サイバーパンク": {
+        "suffix": (
+            ", cyberpunk style, neon lights, futuristic cityscape, "
+            "dark atmosphere, glowing accents, high contrast, "
+            "9:16 vertical portrait"
+        ),
+        "model": "flux",
+        "negative": (
+            "deformed, disfigured, blurry, low quality, daytime, bright sunlight"
+        ),
+    },
+    "ヴィンテージ": {
+        "suffix": (
+            ", vintage retro style, film grain, muted warm tones, "
+            "nostalgic atmosphere, 1970s aesthetic, faded colors, "
+            "9:16 vertical portrait"
+        ),
+        "model": "flux",
+        "negative": (
+            "deformed, disfigured, blurry, low quality, modern, digital"
+        ),
+    },
 }
 
 
