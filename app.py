@@ -53,22 +53,22 @@ def step1_gen_script(topic: str, lang: str, duration_sec: int, num_scenes: int,
     progress(1.0, desc="✅ 台本完成！自由に編集してください")
 
     sections = script["sections"]
-    row_updates      = []
-    textbox_updates  = []
+    textbox_updates = []
     subtitle_updates = []
     for i in range(MAX_SCENES):
         if i < len(sections):
             sec = sections[i]
-            row_updates.append(gr.update(visible=True))
             textbox_updates.append(gr.update(value=sec["text"],
-                                             label=f"場面 {i+1}：{sec['label']}"))
-            subtitle_updates.append(gr.update(value=""))
+                                             label=f"場面 {i+1}：{sec['label']}",
+                                             visible=True))
+            subtitle_updates.append(gr.update(value="",
+                                              label=f"字幕 {i+1}（空欄＝字幕なし）",
+                                              visible=True))
         else:
-            row_updates.append(gr.update(visible=False))
-            textbox_updates.append(gr.update(value=""))
-            subtitle_updates.append(gr.update(value=""))
+            textbox_updates.append(gr.update(value="", visible=False))
+            subtitle_updates.append(gr.update(value="", visible=False))
 
-    return [script] + row_updates + textbox_updates + subtitle_updates + [gr.update(visible=True)]
+    return [script] + textbox_updates + subtitle_updates + [gr.update(visible=True)]
 
 
 def step2_gen_images(script: dict, t1: str, t2: str, t3: str, t4: str, t5: str,
@@ -226,21 +226,13 @@ def pick_topic_to_generate(evt: gr.SelectData, table_data, lang):
 # ── UI ────────────────────────────────────────────────────────────────────────
 
 CSS = """
-.gradio-container { max-width: 960px !important; margin: auto; }
-.wat-header { text-align: center; padding: 24px 0 8px; }
+.gradio-container { max-width: 900px !important; margin: auto; }
+.wat-header { text-align: center; padding: 20px 0; }
 footer { display: none !important; }
-
-/* ステップボタン */
-.step-btn { border-radius: 12px !important; font-size: 1.05rem !important; }
-
-/* 場面Accordion */
-.scene-accordion { border-left: 4px solid #e05c5c !important; margin-bottom: 8px !important; border-radius: 8px !important; }
-.scene-accordion.A { border-left-color: #5c8ae0 !important; }
-.scene-accordion.T { border-left-color: #5ce0a0 !important; }
-
-/* セクション区切り */
-.section-divider { border: none; border-top: 1px solid #333; margin: 16px 0; }
 """
+
+STYLE_CHOICES = ["リアル", "カートゥーン", "ポップアート", "アニメ",
+                 "水彩画", "サイバーパンク", "ヴィンテージ"]
 
 with gr.Blocks(title="WAT Video Generator") as demo:
 
@@ -291,33 +283,25 @@ with gr.Blocks(title="WAT Video Generator") as demo:
                                        label="動画の長さ（秒）", scale=2)
                 g_scenes   = gr.Radio(choices=[3, 4, 5], value=5, label="場面数", scale=1)
             g_style = gr.Radio(
-                choices=["リアル", "カートゥーン", "ポップアート", "アニメ",
-                         "水彩画", "サイバーパンク", "ヴィンテージ"],
+                choices=STYLE_CHOICES,
                 value="カートゥーン", label="🎨 画像スタイル",
             )
 
-            g_script_btn = gr.Button("📝 ① 台本を生成", variant="secondary", size="lg",
-                                     elem_classes=["step-btn"])
+            g_script_btn = gr.Button("📝 ① 台本を生成", variant="secondary", size="lg")
 
             g_script_state = gr.State(value=None)
-
-            # 場面ごとにRow（台本テキスト＋字幕を横並び）
-            g_scene_texts    = []
-            g_subtitle_texts = []
-            g_scene_rows     = []
-            for i in range(MAX_SCENES):
-                with gr.Row(visible=False) as row:
-                    t = gr.Textbox(label=f"場面 {i+1}", lines=3,
-                                   interactive=True, scale=3)
-                    s = gr.Textbox(label="字幕（空欄＝字幕なし）", lines=3,
-                                   interactive=True,
-                                   placeholder="例: 朝食は大切です", scale=1)
-                g_scene_rows.append(row)
-                g_scene_texts.append(t)
-                g_subtitle_texts.append(s)
-
+            g_scene_texts  = [
+                gr.Textbox(label=f"場面 {i+1}", lines=3, visible=False, interactive=True)
+                for i in range(MAX_SCENES)
+            ]
+            g_subtitle_texts = [
+                gr.Textbox(label=f"字幕 {i+1}（空欄＝字幕なし）", lines=2,
+                           visible=False, interactive=True,
+                           placeholder="例: 朝食は大切です")
+                for i in range(MAX_SCENES)
+            ]
             g_img_btn = gr.Button("🎨 ② 画像を生成", variant="secondary", size="lg",
-                                  visible=False, elem_classes=["step-btn"])
+                                  visible=False)
 
             # 画像確認・再生成エリア
             g_images_data  = gr.State(value=None)
@@ -332,7 +316,7 @@ with gr.Blocks(title="WAT Video Generator") as demo:
             g_regen_btn    = gr.Button("🔄 この場面の画像を再生成", size="sm")
 
             g_video_btn = gr.Button("🎬 ③ 動画を作成", variant="primary", size="lg",
-                                    visible=False, elem_classes=["step-btn"])
+                                    visible=False)
 
             g_script_md = gr.Markdown()
             g_video     = gr.Video(label="🎬 完成動画", height=400)
@@ -358,8 +342,7 @@ with gr.Blocks(title="WAT Video Generator") as demo:
                                        label="動画の長さ（秒）", scale=2)
                 a_scenes   = gr.Radio(choices=[3, 4, 5], value=5, label="場面数", scale=1)
             a_style = gr.Radio(
-                choices=["リアル", "カートゥーン", "ポップアート", "アニメ",
-                         "水彩画", "サイバーパンク", "ヴィンテージ"],
+                choices=STYLE_CHOICES,
                 value="カートゥーン", label="🎨 画像スタイル",
             )
             a_btn     = gr.Button("🤖 全自動実行", variant="primary", size="lg")
@@ -381,7 +364,7 @@ with gr.Blocks(title="WAT Video Generator") as demo:
     g_script_btn.click(
         fn=step1_gen_script,
         inputs=[g_topic, g_lang, g_duration, g_scenes],
-        outputs=[g_script_state] + g_scene_rows + g_scene_texts + g_subtitle_texts + [g_img_btn],
+        outputs=[g_script_state] + g_scene_texts + g_subtitle_texts + [g_img_btn],
     )
 
     # ② 画像生成 → (images_data, gallery, scene_sel, edit_prompt, video_btn)
