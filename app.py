@@ -77,6 +77,7 @@ def run_research(query: str, lang: str, country: str, sources: list[str]) -> lis
 
 
 def step1_gen_script(topic: str, lang: str, duration_sec: int, num_scenes: int,
+                     custom_instructions: str = "",
                      progress=gr.Progress()):
     if not topic.strip():
         raise gr.Error("トピックを入力してください")
@@ -86,7 +87,8 @@ def step1_gen_script(topic: str, lang: str, duration_sec: int, num_scenes: int,
     progress(0.2, desc="📝 台本を生成中...")
     from scripts.wat_writer import generate as gen_script
     script = gen_script(topic, lang, duration_sec=int(duration_sec),
-                        num_scenes=int(num_scenes))
+                        num_scenes=int(num_scenes),
+                        custom_instructions=custom_instructions or "")
     progress(1.0, desc="✅ 台本完成！自由に編集してください")
 
     sections = script["sections"]
@@ -209,6 +211,7 @@ def step3_make_video(script: dict, lang: str, images_data: dict,
 def run_auto(query: str, lang: str, country: str, sources: list[str],
              duration_sec: int = 60, num_scenes: int = 5, style: str = "カートゥーン",
              voice_gender: str = "女性", voice_age: str = "標準",
+             custom_instructions: str = "",
              progress=gr.Progress(track_tqdm=True)):
     if not query.strip():
         raise gr.Error("キーワードを入力してください")
@@ -224,7 +227,8 @@ def run_auto(query: str, lang: str, country: str, sources: list[str],
     from scripts.wat_writer import generate as gen_script
     progress(0.2, desc="📝 台本を生成中...")
     script   = gen_script(top_topic, lang, duration_sec=int(duration_sec),
-                          num_scenes=int(num_scenes))
+                          num_scenes=int(num_scenes),
+                          custom_instructions=custom_instructions or "")
     sections = script["sections"]
 
     video_id = str(uuid.uuid4())[:8]
@@ -391,6 +395,19 @@ with gr.Blocks(title="WAT Video Generator") as demo:
                 g_voice_age    = gr.Radio(choices=VOICE_AGE_CHOICES, value="標準",
                                           label="🎙 声の年代", scale=1)
 
+            g_custom_instructions = gr.Textbox(
+                label="📋 カスタム指示（任意）",
+                lines=5,
+                placeholder=(
+                    "例:\n"
+                    "【ターゲット】大学生\n"
+                    "【トーン】共感重視、口語的、短い文\n"
+                    "【フック】最初の1文で驚かせる\n"
+                    "【禁止】説教っぽい表現はNG"
+                ),
+                interactive=True,
+            )
+
             g_script_btn = gr.Button("📝 ① 台本を生成", variant="secondary", size="lg")
 
             g_script_state = gr.State(value=None)
@@ -489,6 +506,17 @@ with gr.Blocks(title="WAT Video Generator") as demo:
                                           label="🎙 声の性別", scale=1)
                 a_voice_age    = gr.Radio(choices=VOICE_AGE_CHOICES, value="標準",
                                           label="🎙 声の年代", scale=1)
+            a_custom_instructions = gr.Textbox(
+                label="📋 カスタム指示（任意）",
+                lines=5,
+                placeholder=(
+                    "例:\n"
+                    "【ターゲット】大学生\n"
+                    "【トーン】共感重視、口語的\n"
+                    "【フック】最初の1文で驚かせる"
+                ),
+                interactive=True,
+            )
             a_btn     = gr.Button("🤖 全自動実行", variant="primary", size="lg")
             a_topic   = gr.Textbox(label="選ばれたトピック", interactive=False)
             a_script  = gr.Markdown()
@@ -507,7 +535,7 @@ with gr.Blocks(title="WAT Video Generator") as demo:
     # ① 台本生成 → headers + texts + prompts + subtitles + img_btn
     g_script_btn.click(
         fn=step1_gen_script,
-        inputs=[g_topic, g_lang, g_duration, g_scenes],
+        inputs=[g_topic, g_lang, g_duration, g_scenes, g_custom_instructions],
         outputs=([g_script_state]
                  + g_scene_headers
                  + g_scene_texts
@@ -568,7 +596,7 @@ with gr.Blocks(title="WAT Video Generator") as demo:
     a_btn.click(
         fn=run_auto,
         inputs=[a_query, a_lang, a_country, a_sources, a_duration, a_scenes, a_style,
-                a_voice_gender, a_voice_age],
+                a_voice_gender, a_voice_age, a_custom_instructions],
         outputs=[a_topic, a_script, a_gallery, a_video],
     )
 

@@ -101,13 +101,21 @@ def _build_prompt(topic: str, language: str, duration_sec: int, num_scenes: int)
 
 
 def generate(topic: str, language: str = "ja", duration_sec: int = 60,
-             num_scenes: int = 5) -> dict:
+             num_scenes: int = 5, custom_instructions: str = "") -> dict:
     """WAT台本を生成して辞書で返す。"""
     from groq import Groq
     from config import GROQ_API_KEY
 
     client = Groq(api_key=GROQ_API_KEY)
     prompt = _build_prompt(topic, language, duration_sec, num_scenes)
+
+    if custom_instructions.strip():
+        prompt = (
+            "=== User Instructions ===\n"
+            + custom_instructions.strip()
+            + "\n\n=== Generation Request ===\n"
+            + prompt
+        )
 
     response = client.chat.completions.create(
         model="llama-3.3-70b-versatile",
