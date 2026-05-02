@@ -84,24 +84,70 @@ def _build_overlay(section_type: str, label: str, body: str,
     return img
 
 
+def _wrap_by_pixel(draw, text: str, font, max_px: int) -> list[str]:
+    """ピクセル幅ベースでテキストを折り返す。日本語・英語どちらにも対応。"""
+    lines: list[str] = []
+    cur = ""
+    for unit in (text.split() or [""]):
+        candidate = f"{cur} {unit}".strip() if cur else unit
+        if draw.textbbox((0, 0), candidate, font=font)[2] <= max_px:
+            cur = candidate
+        else:
+            if cur:
+                lines.append(cur)
+            if draw.textbbox((0, 0), unit, font=font)[2] > max_px:
+                cur = ""
+                for ch in unit:
+                    tmp = cur + ch
+                    if draw.textbbox((0, 0), tmp, font=font)[2] <= max_px:
+                        cur = tmp
+                    else:
+                        if cur:
+                            lines.append(cur)
+                        cur = ch
+            else:
+                cur = unit
+    if cur:
+        lines.append(cur)
+    return lines or [""]
+
+
 def _build_subtitle(text: str) -> Image.Image:
-    """字幕オーバーレイを生成する。"""
+    """字幕オーバーレイを生成する。画面内に必ず収まるよう調整。"""
     img  = Image.new("RGBA", (ENC_W, ENC_H), (0, 0, 0, 0))
     draw = ImageDraw.Draw(img)
-    font = _font(38, bold=False)
 
-    lines   = textwrap.wrap(text.strip(), width=22) or [text.strip()]
-    line_h  = 48
+    SIDE_PAD = 32   # 左右の余白（px）
+    BTM_PAD  = 60   # 下からの余白（px）
+    max_w    = ENC_W - 2 * SIDE_PAD
+
+    # フォントサイズを大→小で試して3行以内に収まる最大サイズを選ぶ
+    font = None
+    lines: list[str] = []
+    for size in [34, 28, 22, 18]:
+        f = _font(size, bold=False)
+        wrapped = _wrap_by_pixel(draw, text.strip(), f, max_w)
+        if len(wrapped) <= 3:
+            font, lines = f, wrapped
+            font_size = size
+            break
+    if font is None:
+        font_size = 18
+        font = _font(font_size, bold=False)
+        lines = _wrap_by_pixel(draw, text.strip(), font, max_w)[:3]
+
+    line_h  = font_size + 14
     total_h = len(lines) * line_h
-    start_y = ENC_H - total_h - 90
+    start_y = max(ENC_H - total_h - BTM_PAD, 10)
 
     for i, line in enumerate(lines):
         bb = draw.textbbox((0, 0), line, font=font)
         tw = bb[2] - bb[0]
-        tx = (ENC_W - tw) // 2
+        tx = max(SIDE_PAD, (ENC_W - tw) // 2)
         ty = start_y + i * line_h
+        rx2 = min(tx + tw + 10, ENC_W - SIDE_PAD)
         draw.rounded_rectangle(
-            [tx - 10, ty - 4, tx + tw + 10, ty + line_h - 4],
+            [tx - 10, ty - 4, rx2, ty + line_h - 4],
             radius=6, fill=(0, 0, 0, 180),
         )
         for dx, dy in [(-1, -1), (1, -1), (-1, 1), (1, 1)]:
