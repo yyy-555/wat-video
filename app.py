@@ -119,8 +119,8 @@ def step2_gen_images(script: dict,
     if script is None:
         raise gr.Error("先に「台本を生成」してください")
 
-    edited_texts   = [t1, t2, t3, t4, t5]
-    edited_prompts = [p1, p2, p3, p4, p5]
+    edited_texts   = [(v or "") for v in [t1, t2, t3, t4, t5]]
+    edited_prompts = [(v or "") for v in [p1, p2, p3, p4, p5]]
     sections = script["sections"]
     for i, sec in enumerate(sections):
         if edited_texts[i].strip():
@@ -190,8 +190,8 @@ def step3_make_video(script: dict, lang: str, images_data: dict,
     images    = [Image.open(p).convert("RGB") for p in paths]
     out_dir   = images_data["out_dir"]
     video_id  = os.path.basename(out_dir)
-    subtitles = [sub1, sub2, sub3, sub4, sub5][:len(sections)]
-    voice     = resolve_voice(lang, voice_gender, voice_age)
+    subtitles = [(s or "") for s in [sub1, sub2, sub3, sub4, sub5]][:len(sections)]
+    voice     = resolve_voice(lang, voice_gender or "女性", voice_age or "標準")
 
     script_json_path = os.path.join(out_dir, "script.json")
     with open(script_json_path, "w", encoding="utf-8") as f:
@@ -541,13 +541,18 @@ with gr.Blocks(title="WAT Video Generator") as demo:
     )
 
     # ③ 動画作成
+    def _make_video_wrap(script, lang, images_data, vg, va,
+                         s1, s2, s3, s4, s5, progress=gr.Progress()):
+        md, mp4, json_path = step3_make_video(
+            script, lang, images_data, vg, va, s1, s2, s3, s4, s5, progress)
+        return md, mp4, gr.update(visible=True, value=json_path)
+
     g_video_btn.click(
-        fn=step3_make_video,
+        fn=_make_video_wrap,
         inputs=[g_script_state, g_lang, g_images_data,
                 g_voice_gender, g_voice_age] + g_subtitle_texts,
         outputs=[g_script_md, g_video, g_json],
     )
-    g_video_btn.click(fn=lambda: gr.update(visible=True), outputs=[g_json])
 
     # 履歴
     def _load_history_ui():

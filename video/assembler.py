@@ -168,8 +168,9 @@ def _make_frame(img: Image.Image, sec: dict, idx: int, total: int,
     result = Image.alpha_composite(bg.convert("RGBA"), dark)
     result = Image.alpha_composite(result, overlay)
 
-    if subtitle.strip():
-        result = Image.alpha_composite(result, _build_subtitle(subtitle))
+    sub_text = (subtitle or "").strip()
+    if sub_text:
+        result = Image.alpha_composite(result, _build_subtitle(sub_text))
 
     return result.convert("RGB")
 
@@ -226,9 +227,10 @@ def assemble(
     voice: str = None,
 ) -> str:
     os.makedirs(output_dir, exist_ok=True)
-    voice = voice or VOICES.get(language, VOICES["en"])
+    voice    = voice or VOICES.get(language, VOICES["en"])
     sections = script["sections"]
-    subs     = subtitles or [""] * len(sections)
+    raw_subs = subtitles or []
+    subs     = [(s or "") for s in raw_subs] + [""] * (len(sections) - len(raw_subs))
 
     tmp_dir = os.path.join(output_dir, "_tmp")
     os.makedirs(tmp_dir, exist_ok=True)
@@ -238,7 +240,7 @@ def assemble(
         for idx, (sec, img) in enumerate(zip(sections, images)):
             # ── TTS ──────────────────────────────────────────────────────────
             mp3_path = os.path.join(tmp_dir, f"s{idx}.mp3")
-            tts_ok   = _tts_sync(sec["text"], voice, mp3_path, timeout=10)
+            tts_ok   = _tts_sync(sec["text"], voice, mp3_path, timeout=25)
             if tts_ok and os.path.exists(mp3_path):
                 audio_path = mp3_path
             else:
