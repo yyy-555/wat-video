@@ -223,9 +223,10 @@ def assemble(
     output_dir: str,
     video_id: str,
     subtitles: list[str] = None,
+    voice: str = None,
 ) -> str:
     os.makedirs(output_dir, exist_ok=True)
-    voice    = VOICES.get(language, VOICES["en"])
+    voice = voice or VOICES.get(language, VOICES["en"])
     sections = script["sections"]
     subs     = subtitles or [""] * len(sections)
 

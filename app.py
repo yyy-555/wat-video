@@ -25,6 +25,41 @@ MAX_SCENES  = 5
 STYLE_CHOICES = ["リアル", "カートゥーン", "ポップアート", "アニメ",
                  "水彩画", "サイバーパンク", "ヴィンテージ"]
 
+VOICE_GENDER_CHOICES = ["女性", "男性"]
+VOICE_AGE_CHOICES    = ["若い", "標準", "落ち着いた"]
+
+# 言語 × (性別, 年代) → edge-tts ボイス名
+VOICE_MAP = {
+    "ja": {
+        ("女性", "若い"):       "ja-JP-AoiNeural",
+        ("女性", "標準"):       "ja-JP-NanamiNeural",
+        ("女性", "落ち着いた"):  "ja-JP-MayuNeural",
+        ("男性", "若い"):       "ja-JP-DaichiNeural",
+        ("男性", "標準"):       "ja-JP-KeitaNeural",
+        ("男性", "落ち着いた"):  "ja-JP-NaokiNeural",
+    },
+    "en": {
+        ("女性", "若い"):       "en-US-JennyNeural",
+        ("女性", "標準"):       "en-US-AriaNeural",
+        ("女性", "落ち着いた"):  "en-US-NancyNeural",
+        ("男性", "若い"):       "en-US-TonyNeural",
+        ("男性", "標準"):       "en-US-GuyNeural",
+        ("男性", "落ち着いた"):  "en-US-DavisNeural",
+    },
+    "es": {
+        ("女性", "若い"):       "es-MX-DaliaNeural",
+        ("女性", "標準"):       "es-MX-DaliaNeural",
+        ("女性", "落ち着いた"):  "es-ES-ElviraNeural",
+        ("男性", "若い"):       "es-MX-JorgeNeural",
+        ("男性", "標準"):       "es-MX-JorgeNeural",
+        ("男性", "落ち着いた"):  "es-ES-AlvaroNeural",
+    },
+}
+
+def resolve_voice(lang: str, gender: str, age: str) -> str:
+    fallback = {"ja": "ja-JP-NanamiNeural", "en": "en-US-AriaNeural", "es": "es-MX-DaliaNeural"}
+    return VOICE_MAP.get(lang, {}).get((gender, age), fallback.get(lang, "en-US-AriaNeural"))
+
 
 # ── Core pipeline functions ───────────────────────────────────────────────────
 
@@ -144,6 +179,7 @@ def regen_one_image(scene_label: str, prompt: str, style: str, images_data: dict
 
 
 def step3_make_video(script: dict, lang: str, images_data: dict,
+                     voice_gender: str, voice_age: str,
                      sub1: str, sub2: str, sub3: str, sub4: str, sub5: str,
                      progress=gr.Progress()):
     if script is None or images_data is None:
@@ -155,6 +191,7 @@ def step3_make_video(script: dict, lang: str, images_data: dict,
     out_dir   = images_data["out_dir"]
     video_id  = os.path.basename(out_dir)
     subtitles = [sub1, sub2, sub3, sub4, sub5][:len(sections)]
+    voice     = resolve_voice(lang, voice_gender, voice_age)
 
     script_json_path = os.path.join(out_dir, "script.json")
     with open(script_json_path, "w", encoding="utf-8") as f:
@@ -162,7 +199,8 @@ def step3_make_video(script: dict, lang: str, images_data: dict,
 
     progress(0.8, desc="🎬 動画を組み立て中...")
     from video.assembler import assemble
-    mp4_path = assemble(script, images, lang, out_dir, video_id, subtitles=subtitles)
+    mp4_path = assemble(script, images, lang, out_dir, video_id,
+                        subtitles=subtitles, voice=voice)
 
     progress(1.0, desc="✅ 完了!")
     return _script_to_markdown(script), mp4_path, script_json_path
@@ -170,6 +208,7 @@ def step3_make_video(script: dict, lang: str, images_data: dict,
 
 def run_auto(query: str, lang: str, country: str, sources: list[str],
              duration_sec: int = 60, num_scenes: int = 5, style: str = "カートゥーン",
+             voice_gender: str = "女性", voice_age: str = "標準",
              progress=gr.Progress(track_tqdm=True)):
     if not query.strip():
         raise gr.Error("キーワードを入力してください")
@@ -204,9 +243,10 @@ def run_auto(query: str, lang: str, country: str, sources: list[str],
         images.append(img)
         img_paths.append(p)
 
+    voice = resolve_voice(lang, voice_gender, voice_age)
     progress(0.75, desc="🎬 動画を組み立て中...")
     from video.assembler import assemble
-    mp4_path = assemble(script, images, lang, out_dir, video_id)
+    mp4_path = assemble(script, images, lang, out_dir, video_id, voice=voice)
 
     progress(1.0, desc="✅ 完了!")
     return top_topic, _script_to_markdown(script), img_paths, mp4_path
@@ -345,6 +385,11 @@ with gr.Blocks(title="WAT Video Generator") as demo:
                 choices=STYLE_CHOICES,
                 value="カートゥーン", label="🎨 画像スタイル",
             )
+            with gr.Row():
+                g_voice_gender = gr.Radio(choices=VOICE_GENDER_CHOICES, value="女性",
+                                          label="🎙 声の性別", scale=1)
+                g_voice_age    = gr.Radio(choices=VOICE_AGE_CHOICES, value="標準",
+                                          label="🎙 声の年代", scale=1)
 
             g_script_btn = gr.Button("📝 ① 台本を生成", variant="secondary", size="lg")
 
@@ -439,6 +484,11 @@ with gr.Blocks(title="WAT Video Generator") as demo:
                 choices=STYLE_CHOICES,
                 value="カートゥーン", label="🎨 画像スタイル",
             )
+            with gr.Row():
+                a_voice_gender = gr.Radio(choices=VOICE_GENDER_CHOICES, value="女性",
+                                          label="🎙 声の性別", scale=1)
+                a_voice_age    = gr.Radio(choices=VOICE_AGE_CHOICES, value="標準",
+                                          label="🎙 声の年代", scale=1)
             a_btn     = gr.Button("🤖 全自動実行", variant="primary", size="lg")
             a_topic   = gr.Textbox(label="選ばれたトピック", interactive=False)
             a_script  = gr.Markdown()
@@ -493,7 +543,8 @@ with gr.Blocks(title="WAT Video Generator") as demo:
     # ③ 動画作成
     g_video_btn.click(
         fn=step3_make_video,
-        inputs=[g_script_state, g_lang, g_images_data] + g_subtitle_texts,
+        inputs=[g_script_state, g_lang, g_images_data,
+                g_voice_gender, g_voice_age] + g_subtitle_texts,
         outputs=[g_script_md, g_video, g_json],
     )
     g_video_btn.click(fn=lambda: gr.update(visible=True), outputs=[g_json])
@@ -511,7 +562,8 @@ with gr.Blocks(title="WAT Video Generator") as demo:
     # 全自動
     a_btn.click(
         fn=run_auto,
-        inputs=[a_query, a_lang, a_country, a_sources, a_duration, a_scenes, a_style],
+        inputs=[a_query, a_lang, a_country, a_sources, a_duration, a_scenes, a_style,
+                a_voice_gender, a_voice_age],
         outputs=[a_topic, a_script, a_gallery, a_video],
     )
 
