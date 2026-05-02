@@ -22,6 +22,8 @@ os.makedirs(OUTPUT_DIR, exist_ok=True)
 LANG_NAMES  = {"ja": "🇯🇵 日本語", "en": "🇺🇸 English", "es": "🇪🇸 Español"}
 COUNTRY_MAP = {"ja": "JP", "en": "US", "es": "ES"}
 MAX_SCENES  = 5
+STYLE_CHOICES = ["リアル", "カートゥーン", "ポップアート", "アニメ",
+                 "水彩画", "サイバーパンク", "ヴィンテージ"]
 
 
 # ── Core pipeline functions ───────────────────────────────────────────────────
@@ -53,34 +55,43 @@ def step1_gen_script(topic: str, lang: str, duration_sec: int, num_scenes: int,
     progress(1.0, desc="✅ 台本完成！自由に編集してください")
 
     sections = script["sections"]
-    textbox_updates = []
-    subtitle_updates = []
+    header_updates  = []
+    text_updates    = []
+    prompt_updates  = []
+    sub_updates     = []
     for i in range(MAX_SCENES):
         if i < len(sections):
             sec = sections[i]
-            textbox_updates.append(gr.update(value=sec["text"],
-                                             label=f"場面 {i+1}：{sec['label']}",
-                                             visible=True))
-            subtitle_updates.append(gr.update(value="",
-                                              label=f"字幕 {i+1}（空欄＝字幕なし）",
-                                              visible=True))
+            header_updates.append(gr.update(
+                value=f"---\n**場面 {i+1}：{sec['label']}**", visible=True))
+            text_updates.append(gr.update(value=sec["text"], visible=True))
+            prompt_updates.append(gr.update(value=sec.get("image_prompt", ""), visible=True))
+            sub_updates.append(gr.update(value="", visible=True))
         else:
-            textbox_updates.append(gr.update(value="", visible=False))
-            subtitle_updates.append(gr.update(value="", visible=False))
+            header_updates.append(gr.update(visible=False))
+            text_updates.append(gr.update(value="", visible=False))
+            prompt_updates.append(gr.update(value="", visible=False))
+            sub_updates.append(gr.update(value="", visible=False))
 
-    return [script] + textbox_updates + subtitle_updates + [gr.update(visible=True)]
+    return ([script] + header_updates + text_updates +
+            prompt_updates + sub_updates + [gr.update(visible=True)])
 
 
-def step2_gen_images(script: dict, t1: str, t2: str, t3: str, t4: str, t5: str,
+def step2_gen_images(script: dict,
+                     t1: str, t2: str, t3: str, t4: str, t5: str,
+                     p1: str, p2: str, p3: str, p4: str, p5: str,
                      style: str, progress=gr.Progress()):
     if script is None:
         raise gr.Error("先に「台本を生成」してください")
 
-    edited = [t1, t2, t3, t4, t5]
+    edited_texts   = [t1, t2, t3, t4, t5]
+    edited_prompts = [p1, p2, p3, p4, p5]
     sections = script["sections"]
     for i, sec in enumerate(sections):
-        if edited[i].strip():
-            sec["text"] = edited[i].strip()
+        if edited_texts[i].strip():
+            sec["text"] = edited_texts[i].strip()
+        if edited_prompts[i].strip():
+            sec["image_prompt"] = edited_prompts[i].strip()
 
     video_id = str(uuid.uuid4())[:8]
     out_dir  = os.path.join(OUTPUT_DIR, video_id)
@@ -224,7 +235,8 @@ def load_history() -> tuple[list, list]:
             except Exception:
                 pass
         from datetime import datetime
-        dt = datetime.fromtimestamp(os.path.getmtime(session_dir)).strftime("%Y-%m-%d %H:%M")
+        dt = datetime.fromtimestamp(
+            os.path.getmtime(session_dir)).strftime("%Y-%m-%d %H:%M")
         rows.append([video_id, topic, dt])
         items.append({"video_id": video_id, "dir": session_dir, "mp4": mp4_files[0]})
     return rows, items
@@ -276,13 +288,10 @@ def pick_topic_to_generate(evt: gr.SelectData, table_data, lang):
 # ── UI ────────────────────────────────────────────────────────────────────────
 
 CSS = """
-.gradio-container { max-width: 900px !important; margin: auto; }
+.gradio-container { max-width: 960px !important; margin: auto; }
 .wat-header { text-align: center; padding: 20px 0; }
 footer { display: none !important; }
 """
-
-STYLE_CHOICES = ["リアル", "カートゥーン", "ポップアート", "アニメ",
-                 "水彩画", "サイバーパンク", "ヴィンテージ"]
 
 with gr.Blocks(title="WAT Video Generator") as demo:
 
@@ -340,30 +349,47 @@ with gr.Blocks(title="WAT Video Generator") as demo:
             g_script_btn = gr.Button("📝 ① 台本を生成", variant="secondary", size="lg")
 
             g_script_state = gr.State(value=None)
-            g_scene_texts  = [
-                gr.Textbox(label=f"場面 {i+1}", lines=3, visible=False, interactive=True)
-                for i in range(MAX_SCENES)
-            ]
-            g_subtitle_texts = [
-                gr.Textbox(label=f"字幕 {i+1}（空欄＝字幕なし）", lines=2,
-                           visible=False, interactive=True,
-                           placeholder="例: 朝食は大切です")
-                for i in range(MAX_SCENES)
-            ]
+
+            # 場面ごとに見出し＋3フィールド（台本・画像プロンプト・字幕）
+            g_scene_headers  = []
+            g_scene_texts    = []
+            g_image_prompts  = []
+            g_subtitle_texts = []
+            for i in range(MAX_SCENES):
+                g_scene_headers.append(
+                    gr.Markdown(f"**場面 {i+1}**", visible=False)
+                )
+                g_scene_texts.append(
+                    gr.Textbox(label="台本テキスト（読み上げ・テロップ）",
+                               lines=3, visible=False, interactive=True)
+                )
+                g_image_prompts.append(
+                    gr.Textbox(label="画像プロンプト（英語）",
+                               lines=2, visible=False, interactive=True,
+                               placeholder="e.g. A person eating breakfast at a bright kitchen table")
+                )
+                g_subtitle_texts.append(
+                    gr.Textbox(label="字幕（動画下部・空欄＝なし）",
+                               lines=1, visible=False, interactive=True,
+                               placeholder="例: 朝食は大切です")
+                )
+
             g_img_btn = gr.Button("🎨 ② 画像を生成", variant="secondary", size="lg",
                                   visible=False)
 
             # 画像確認・再生成エリア
-            g_images_data  = gr.State(value=None)
-            g_gallery      = gr.Gallery(label="生成画像", columns=5, height=220,
-                                        visible=False, object_fit="cover")
-            g_scene_sel    = gr.Dropdown(label="再生成する場面を選択",
-                                         choices=[], visible=False, interactive=True)
-            g_edit_prompt  = gr.Textbox(
-                label="プロンプト（英語で編集すると反映されやすい）",
-                lines=3, interactive=True)
-            g_edit_img     = gr.Image(label="選択中の画像", height=250, interactive=False)
-            g_regen_btn    = gr.Button("🔄 この場面の画像を再生成", size="sm")
+            g_images_data = gr.State(value=None)
+            g_gallery     = gr.Gallery(label="生成画像", columns=5, height=220,
+                                       visible=False, object_fit="cover")
+            gr.Markdown("#### 画像を1枚だけ再生成したい場合")
+            with gr.Row():
+                g_scene_sel   = gr.Dropdown(label="場面を選択",
+                                            choices=[], visible=False, interactive=True)
+                g_edit_prompt = gr.Textbox(label="プロンプト（英語）",
+                                           lines=2, interactive=True)
+            with gr.Row():
+                g_edit_img  = gr.Image(label="選択中の画像", height=220, interactive=False)
+                g_regen_btn = gr.Button("🔄 この場面の画像を再生成", size="sm")
 
             g_video_btn = gr.Button("🎬 ③ 動画を作成", variant="primary", size="lg",
                                     visible=False)
@@ -428,17 +454,25 @@ with gr.Blocks(title="WAT Video Generator") as demo:
                    inputs=[r_table, r_lang],
                    outputs=[g_topic, g_lang])
 
-    # ① 台本生成
+    # ① 台本生成 → headers + texts + prompts + subtitles + img_btn
     g_script_btn.click(
         fn=step1_gen_script,
         inputs=[g_topic, g_lang, g_duration, g_scenes],
-        outputs=[g_script_state] + g_scene_texts + g_subtitle_texts + [g_img_btn],
+        outputs=([g_script_state]
+                 + g_scene_headers
+                 + g_scene_texts
+                 + g_image_prompts
+                 + g_subtitle_texts
+                 + [g_img_btn]),
     )
 
-    # ② 画像生成 → (images_data, gallery, scene_sel, edit_prompt, video_btn)
+    # ② 画像生成
     g_img_btn.click(
         fn=step2_gen_images,
-        inputs=[g_script_state] + g_scene_texts + [g_style],
+        inputs=([g_script_state]
+                + g_scene_texts
+                + g_image_prompts
+                + [g_style]),
         outputs=[g_images_data, g_gallery, g_scene_sel, g_edit_prompt, g_video_btn],
     )
 
@@ -449,7 +483,7 @@ with gr.Blocks(title="WAT Video Generator") as demo:
         outputs=[g_edit_img, g_edit_prompt],
     )
 
-    # 再生成 → (images_data, gallery, edit_img)
+    # 再生成
     g_regen_btn.click(
         fn=regen_one_image,
         inputs=[g_scene_sel, g_edit_prompt, g_style, g_images_data],
