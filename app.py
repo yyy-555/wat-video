@@ -201,6 +201,56 @@ def run_auto(query: str, lang: str, country: str, sources: list[str],
     return top_topic, _script_to_markdown(script), img_paths, mp4_path
 
 
+# ── History ───────────────────────────────────────────────────────────────────
+
+def load_history() -> tuple[list, list]:
+    rows = []
+    items = []
+    if not os.path.exists(OUTPUT_DIR):
+        return [], []
+    for video_id in sorted(os.listdir(OUTPUT_DIR), reverse=True):
+        session_dir = os.path.join(OUTPUT_DIR, video_id)
+        if not os.path.isdir(session_dir):
+            continue
+        mp4_files = [f for f in os.listdir(session_dir) if f.endswith(".mp4")]
+        if not mp4_files:
+            continue
+        script_path = os.path.join(session_dir, "script.json")
+        topic = "（不明）"
+        if os.path.exists(script_path):
+            try:
+                with open(script_path, encoding="utf-8") as f:
+                    topic = json.load(f).get("topic", "（不明）")
+            except Exception:
+                pass
+        from datetime import datetime
+        dt = datetime.fromtimestamp(os.path.getmtime(session_dir)).strftime("%Y-%m-%d %H:%M")
+        rows.append([video_id, topic, dt])
+        items.append({"video_id": video_id, "dir": session_dir, "mp4": mp4_files[0]})
+    return rows, items
+
+
+def show_history_item(evt: gr.SelectData, history_items: list) -> tuple:
+    if not history_items or evt is None:
+        return [], None, ""
+    item = history_items[evt.index[0]]
+    session_dir = item["dir"]
+    img_paths = sorted(
+        [os.path.join(session_dir, f) for f in os.listdir(session_dir)
+         if f.startswith("img_") and f.endswith(".png")]
+    )
+    mp4_path = os.path.join(session_dir, item["mp4"])
+    script_path = os.path.join(session_dir, "script.json")
+    md = ""
+    if os.path.exists(script_path):
+        try:
+            with open(script_path, encoding="utf-8") as f:
+                md = _script_to_markdown(json.load(f))
+        except Exception:
+            pass
+    return img_paths, mp4_path, md
+
+
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 def _script_to_markdown(script: dict) -> str:
@@ -322,7 +372,25 @@ with gr.Blocks(title="WAT Video Generator") as demo:
             g_video     = gr.Video(label="🎬 完成動画", height=400)
             g_json      = gr.File(label="script.json ダウンロード", visible=False)
 
-        # ── Tab 3: Auto ────────────────────────────────────────────────────
+        # ── Tab 3: History ─────────────────────────────────────────────────
+        with gr.Tab("📂 履歴", id="history"):
+            gr.Markdown("### このセッションで生成した動画・画像の履歴")
+            gr.Markdown("*注意: HuggingFace Spaces の再起動後は消えます*")
+            h_load_btn = gr.Button("🔄 履歴を読み込む", variant="secondary")
+            h_table = gr.DataFrame(
+                headers=["動画ID", "トピック", "作成日時"],
+                datatype=["str", "str", "str"],
+                label="生成履歴",
+                interactive=False,
+            )
+            gr.Markdown("💡 *行をクリックすると詳細が表示されます*")
+            h_items_state = gr.State(value=[])
+            h_gallery  = gr.Gallery(label="生成画像", columns=5, height=220,
+                                    object_fit="cover")
+            h_video    = gr.Video(label="🎬 完成動画", height=400)
+            h_script   = gr.Markdown()
+
+        # ── Tab 4: Auto ────────────────────────────────────────────────────
         with gr.Tab("🤖 全自動", id="auto"):
             gr.Markdown("### リサーチ → トップトレンド → 動画を全自動で生成")
             with gr.Row():
@@ -395,6 +463,16 @@ with gr.Blocks(title="WAT Video Generator") as demo:
         outputs=[g_script_md, g_video, g_json],
     )
     g_video_btn.click(fn=lambda: gr.update(visible=True), outputs=[g_json])
+
+    # 履歴
+    def _load_history_ui():
+        rows, items = load_history()
+        return rows, items
+
+    h_load_btn.click(fn=_load_history_ui, outputs=[h_table, h_items_state])
+    h_table.select(fn=show_history_item,
+                   inputs=[h_items_state],
+                   outputs=[h_gallery, h_video, h_script])
 
     # 全自動
     a_btn.click(
