@@ -53,22 +53,22 @@ def step1_gen_script(topic: str, lang: str, duration_sec: int, num_scenes: int,
     progress(1.0, desc="✅ 台本完成！自由に編集してください")
 
     sections = script["sections"]
-    accordion_updates = []
-    textbox_updates   = []
-    subtitle_updates  = []
+    row_updates      = []
+    textbox_updates  = []
+    subtitle_updates = []
     for i in range(MAX_SCENES):
         if i < len(sections):
             sec = sections[i]
-            accordion_updates.append(gr.update(label=f"場面 {i+1}：{sec['label']}",
-                                               visible=True, open=True))
-            textbox_updates.append(gr.update(value=sec["text"]))
+            row_updates.append(gr.update(visible=True))
+            textbox_updates.append(gr.update(value=sec["text"],
+                                             label=f"場面 {i+1}：{sec['label']}"))
             subtitle_updates.append(gr.update(value=""))
         else:
-            accordion_updates.append(gr.update(visible=False))
+            row_updates.append(gr.update(visible=False))
             textbox_updates.append(gr.update(value=""))
             subtitle_updates.append(gr.update(value=""))
 
-    return [script] + accordion_updates + textbox_updates + subtitle_updates + [gr.update(visible=True)]
+    return [script] + row_updates + textbox_updates + subtitle_updates + [gr.update(visible=True)]
 
 
 def step2_gen_images(script: dict, t1: str, t2: str, t3: str, t4: str, t5: str,
@@ -301,17 +301,18 @@ with gr.Blocks(title="WAT Video Generator") as demo:
 
             g_script_state = gr.State(value=None)
 
-            # 場面ごとにAccordion（台本テキスト＋字幕をセット）
-            _SCENE_COLORS = ["#e05c5c", "#5c8ae0", "#5c8ae0", "#5c8ae0", "#5ce0a0"]
+            # 場面ごとにRow（台本テキスト＋字幕を横並び）
             g_scene_texts    = []
             g_subtitle_texts = []
-            g_accordions     = []
+            g_scene_rows     = []
             for i in range(MAX_SCENES):
-                with gr.Accordion(f"場面 {i+1}", open=True, visible=False) as acc:
-                    t = gr.Textbox(label="台本テキスト", lines=3, interactive=True)
-                    s = gr.Textbox(label="字幕（空欄＝字幕なし）", lines=2,
-                                   interactive=True, placeholder="例: 朝食は大切です")
-                g_accordions.append(acc)
+                with gr.Row(visible=False) as row:
+                    t = gr.Textbox(label=f"場面 {i+1}", lines=3,
+                                   interactive=True, scale=3)
+                    s = gr.Textbox(label="字幕（空欄＝字幕なし）", lines=3,
+                                   interactive=True,
+                                   placeholder="例: 朝食は大切です", scale=1)
+                g_scene_rows.append(row)
                 g_scene_texts.append(t)
                 g_subtitle_texts.append(s)
 
@@ -380,7 +381,7 @@ with gr.Blocks(title="WAT Video Generator") as demo:
     g_script_btn.click(
         fn=step1_gen_script,
         inputs=[g_topic, g_lang, g_duration, g_scenes],
-        outputs=[g_script_state] + g_accordions + g_scene_texts + g_subtitle_texts + [g_img_btn],
+        outputs=[g_script_state] + g_scene_rows + g_scene_texts + g_subtitle_texts + [g_img_btn],
     )
 
     # ② 画像生成 → (images_data, gallery, scene_sel, edit_prompt, video_btn)
